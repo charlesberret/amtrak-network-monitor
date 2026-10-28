@@ -1,0 +1,16 @@
+[package]
+name = "amtrak-network-monitor"
+version = "0.1.0"
+edition = "2021"
+description = "Record a ride: position and the connection in use, shown as it happens."
+
+[[bin]]
+name = "amtrak-network-monitor"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["clock"] }
+crossterm = "0.28"
+ratatui = "0.29"
+serde_json = "1"

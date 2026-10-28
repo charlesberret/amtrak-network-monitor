@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>AmtrakLocation</string>
+  <key>CFBundleIdentifier</key>
+  <string>app.amtrak-network-monitor.location</string>
+  <key>CFBundleName</key>
+  <string>Amtrak Location</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>LSUIElement</key>
+  <false/>
+  <key>NSLocationUsageDescription</key>
+  <string>This records where the train is so each connection sample has a place.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>This records where the train is so each connection sample has a place.</string>
+</dict>
+</plist>

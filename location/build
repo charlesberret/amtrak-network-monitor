@@ -1,0 +1,14 @@
+#!/bin/bash
+# Build the Mac location helper next to this repo's monitor.
+# The helper is an app so macOS can ask for Location. A terminal binary cannot.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+dest="${HOME}/Applications/Amtrak Location.app"
+rm -rf "$dest"
+mkdir -p "$dest/Contents/MacOS"
+cp "$here/Info.plist" "$dest/Contents/Info.plist"
+swiftc -O -o "$dest/Contents/MacOS/AmtrakLocation" "$here/main.swift" \
+  -framework CoreLocation -framework AppKit
+codesign --force --sign - "$dest"
+printf 'Built %s\n' "$dest"
+printf 'Open it, allow Location, and leave it running for the trip.\n'
