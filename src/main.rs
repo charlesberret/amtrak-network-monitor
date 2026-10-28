@@ -9,8 +9,8 @@ mod ui;
 
 use crate::feed::{default_row, read_fixes, read_links, Fix, LinkRow};
 use crate::model::{
-    fix_age, minute_lights, motion_between, pace_line, page_line, path_line, short_place, tone_of,
-    Snapshot, Tone,
+    fix_age, minute_lights, motion_between, pace_line, page_line, path_line, stored_place,
+    stored_position, tone_of, Snapshot, Tone,
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, TimeZone, Utc};
@@ -18,6 +18,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -37,6 +38,42 @@ struct Args {
 struct Machine {
     sampler: bool,
     legacy_location: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Gather {
+    save_trip: bool,
+}
+
+fn gather_path(home: &Path) -> PathBuf {
+    support_dir(home).join("settings.json")
+}
+
+fn load_gather(home: &Path) -> Gather {
+    let text = fs::read_to_string(gather_path(home)).unwrap_or_default();
+    let save_trip = serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|value| value.get("save_trip").and_then(|v| v.as_bool()))
+        .unwrap_or(true);
+    Gather { save_trip }
+}
+
+fn store_gather(home: &Path, gather: Gather) -> Result<()> {
+    let path = gather_path(home);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+        let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+    }
+    let body = json!({"save_trip": gather.save_trip}).to_string();
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)?;
+    writeln!(file, "{body}")?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
 }
 
 fn home_dir() -> PathBuf {
@@ -127,77 +164,53 @@ fn resolve_inputs(args: &mut Args) {
 fn main() -> Result<()> {
     let mut args = parse_args()?;
     resolve_inputs(&mut args);
-    if let Some(parent) = args.log.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    let mut gather = load_gather(&home_dir());
     if args.once {
         let mut last_probe = None;
         let mut measured = Vec::new();
-        let loaded = load(&args, &mut last_probe, &mut measured)?;
+        let mut loaded = load(&args, &mut last_probe, &mut measured)?;
+        loaded.view.saving = gather.save_trip;
         print_once(&loaded.view);
-        println!("Trip log: {}", args.log.display());
-        append(
-            &args.log,
-            &json!({
-                "event": "check",
-                "at": Local::now().to_rfc3339(),
-                "tone": loaded.view.tone.word(),
-                "place": loaded.view.place,
-                "source": loaded.view.source,
-            }),
-        )?;
+        if gather.save_trip {
+            println!("Trip log: {}", args.log.display());
+            log_sample_as(&args.log, &loaded, "check")?;
+        } else {
+            println!("not saving");
+        }
         return Ok(());
     }
 
-    append(
-        &args.log,
-        &json!({
-            "event": "started",
-            "at": Local::now().to_rfc3339(),
-            "line": args.line,
-            "train": args.train,
-            "loc": args.loc,
-            "sampler_pid": probe::sampler_pid(),
-            "location_helper_pid": probe::location_helper_pid(),
-            "following": following(&args),
-            "exe_mtime": exe_mtime(),
-        }),
-    )?;
+    if gather.save_trip {
+        mark_trip(&args.log, "started", args.line.as_deref())?;
+    }
 
     let mut terminal = ratatui::init();
-    let run_result = run(&mut terminal, &args);
+    let run_result = run(&mut terminal, &args, &mut gather);
     ratatui::restore();
     if matches!(run_result, Ok(SessionEnd::Reload)) {
-        let _ = append(
-            &args.log,
-            &json!({
-                "event": "reloaded",
-                "at": Local::now().to_rfc3339(),
-                "exe_mtime": exe_mtime(),
-            }),
-        );
         return Err(relaunch());
     }
-    let _ = append(
-        &args.log,
-        &json!({
-            "event": "stopped",
-            "at": Local::now().to_rfc3339(),
-        }),
-    );
-    if matches!(run_result, Ok(SessionEnd::Quit)) {
+    if gather.save_trip {
+        let _ = mark_trip(&args.log, "stopped", None);
+    }
+    if matches!(run_result, Ok(SessionEnd::Quit)) && gather.save_trip {
         println!("Trip log: {}", args.log.display());
     }
     run_result.map(|_| ())
 }
 
-fn run(terminal: &mut ratatui::DefaultTerminal, args: &Args) -> Result<SessionEnd> {
+fn run(
+    terminal: &mut ratatui::DefaultTerminal,
+    args: &Args,
+    gather: &mut Gather,
+) -> Result<SessionEnd> {
     let mut last_load = Instant::now() - Duration::from_secs(2);
-    let mut last_beat = Instant::now();
     let mut last_sample_at: Option<DateTime<Local>> = None;
     let mut last_probe: Option<(Instant, LinkRow)> = None;
     let mut measured: Vec<LinkRow> = Vec::new();
+    let mut settings = false;
     let mut snap = load(args, &mut last_probe, &mut measured)?;
+    snap.view.saving = gather.save_trip;
     let running_mtime = exe_modified().unwrap_or(SystemTime::UNIX_EPOCH);
     let mut pending_build: Option<(SystemTime, Instant)> = None;
 
@@ -208,37 +221,44 @@ fn run(terminal: &mut ratatui::DefaultTerminal, args: &Args) -> Result<SessionEn
             }
         }
         if last_load.elapsed() >= Duration::from_secs(1) {
-            match load(args, &mut last_probe, &mut measured) {
-                Ok(next) => snap = next,
-                Err(err) => {
-                    let _ = append(
-                        &args.log,
-                        &json!({
-                            "event": "error",
-                            "at": Local::now().to_rfc3339(),
-                            "message": err.to_string(),
-                        }),
-                    );
-                }
+            if let Ok(mut next) = load(args, &mut last_probe, &mut measured) {
+                next.view.saving = gather.save_trip;
+                snap = next;
             }
             last_load = Instant::now();
-            if snap.sample_stamp != last_sample_at {
+            if gather.save_trip && snap.sample_stamp != last_sample_at {
                 last_sample_at = snap.sample_stamp;
                 log_sample(&args.log, &snap)?;
             }
         }
 
-        terminal.draw(|frame| ui::draw(frame, &snap.view))?;
-
-        if last_beat.elapsed() >= Duration::from_secs(30) {
-            log_sample_as(&args.log, &snap, "heartbeat")?;
-            last_beat = Instant::now();
-        }
+        terminal.draw(|frame| {
+            if settings {
+                ui::draw_settings(frame, &snap.view);
+            } else {
+                ui::draw(frame, &snap.view);
+            }
+        })?;
 
         if event::poll(Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('q')) {
-                    return Ok(SessionEnd::Quit);
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                match key.code {
+                    KeyCode::Char('q') => return Ok(SessionEnd::Quit),
+                    KeyCode::Char('s') => settings = !settings,
+                    KeyCode::Char(' ') if settings => {
+                        gather.save_trip = !gather.save_trip;
+                        snap.view.saving = gather.save_trip;
+                        let _ = store_gather(&home_dir(), *gather);
+                        if gather.save_trip {
+                            let _ = mark_trip(&args.log, "started", args.line.as_deref());
+                        } else {
+                            let _ = mark_trip(&args.log, "stopped", None);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -360,15 +380,12 @@ fn load_owned(
     };
 
     let followed = default_row(links).cloned();
-    let (row, mut source) = if follow {
-        (followed, "Using the sampler already running".to_string())
+    let row = if follow {
+        followed
     } else if probed.is_some() {
-        (
-            probed,
-            "Measuring the connection on this computer".to_string(),
-        )
+        probed
     } else {
-        (followed, "No connection measurement right now".to_string())
+        followed
     };
 
     let sample_stamp = row.as_ref().map(|r| r.at);
@@ -396,11 +413,10 @@ fn load_owned(
 
     let latest = fixes.last();
     let place = latest
-        .map(|f| short_place(&f.place))
+        .map(|f| stored_place(&f.place))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "waiting for a location".to_string());
-    let position = latest.map(|f| (f.lat, f.lon));
-    let accuracy_m = latest.map(|f| f.acc_m);
+    let position = latest.map(|f| stored_position(f.lat, f.lon));
     let fix_age_d = latest.and_then(|f| fix_age(f, now_utc));
     let motion = latest.and_then(|newer| {
         fixes
@@ -410,26 +426,12 @@ fn load_owned(
             .and_then(|older| motion_between(older, newer))
     });
 
-    if probe::location_helper_pid().is_none()
-        && fix_age_d
-            .map(|d| d > Duration::from_secs(180))
-            .unwrap_or(true)
-    {
-        source = format!("{source}. No location coming in");
-    }
-
     let chart: &[LinkRow] = if follow { links } else { measured };
-    let recording = args
-        .log
-        .file_name()
-        .map(|name| format!("recording {}", name.to_string_lossy()))
-        .unwrap_or_default();
     let view = Snapshot {
         at: now_local,
         line: args.line.clone(),
         place,
         position,
-        accuracy_m,
         motion,
         tone,
         pace,
@@ -437,8 +439,7 @@ fn load_owned(
         path,
         is_default,
         history: minute_lights(chart, now_local, 30),
-        source,
-        recording,
+        saving: true,
         sample_age,
         fix_age: fix_age_d,
     };
@@ -453,40 +454,60 @@ fn log_sample(path: &Path, loaded: &Loaded) -> Result<()> {
     log_sample_as(path, loaded, "sample")
 }
 
-fn log_sample_as(path: &Path, loaded: &Loaded, event: &str) -> Result<()> {
-    let snap = &loaded.view;
-    let (lat, lon) = snap.position.unzip();
+fn mark_trip(path: &Path, event: &str, line: Option<&str>) -> Result<()> {
     append(
         path,
         &json!({
             "event": event,
-            "at": Local::now().to_rfc3339(),
-            "sample_at": loaded.sample_stamp.map(|t| t.to_rfc3339()),
-            "tone": snap.tone.word(),
-            "place": snap.place,
-            "lat": lat,
-            "lon": lon,
-            "pace": snap.pace,
-            "page": snap.page,
-            "path": snap.path,
-            "loss_pct": loaded.row.as_ref().and_then(|row| row.loss_pct),
-            "rtt_ms": loaded.row.as_ref().and_then(|row| row.rtt_ms),
-            "http_code": loaded.row.as_ref().and_then(|row| row.http_code),
-            "http_s": loaded.row.as_ref().and_then(|row| row.http_s),
-            "acc_m": snap.accuracy_m,
-            "line": snap.line,
-            "is_default": snap.is_default,
-            "motion": snap.motion,
-            "source": snap.source,
-            "sample_age_s": snap.sample_age.map(|d| d.as_secs()),
-            "fix_age_s": snap.fix_age.map(|d| d.as_secs()),
+            "at": Utc::now().to_rfc3339(),
+            "line": line,
         }),
     )
 }
 
+fn sample_record(loaded: &Loaded, event: &str) -> serde_json::Value {
+    let snap = &loaded.view;
+    let place = if snap.place == "waiting for a location" {
+        String::new()
+    } else {
+        stored_place(&snap.place)
+    };
+    let (lat, lon) = snap
+        .position
+        .map(|(lat, lon)| stored_position(lat, lon))
+        .unzip();
+    json!({
+        "event": event,
+        "at": Utc::now().to_rfc3339(),
+        "tone": snap.tone.word(),
+        "place": place,
+        "lat": lat,
+        "lon": lon,
+        "path": snap.path,
+        "loss_pct": loaded.row.as_ref().and_then(|row| row.loss_pct),
+        "rtt_ms": loaded.row.as_ref().and_then(|row| row.rtt_ms),
+        "http_code": loaded.row.as_ref().and_then(|row| row.http_code),
+        "http_s": loaded.row.as_ref().and_then(|row| row.http_s),
+        "line": snap.line,
+    })
+}
+
+fn log_sample_as(path: &Path, loaded: &Loaded, event: &str) -> Result<()> {
+    append(path, &sample_record(loaded, event))
+}
+
 fn append(path: &Path, value: &serde_json::Value) -> Result<()> {
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+        let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)?;
     writeln!(file, "{value}")?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     Ok(())
 }
 
@@ -509,17 +530,9 @@ fn print_once(snap: &Snapshot) {
     if snap.is_default {
         println!("default route");
     }
-    println!("{}", snap.source);
     if let Some(age) = snap.sample_age {
         println!("sample age {}s", age.as_secs());
     }
-}
-
-fn exe_mtime() -> Option<String> {
-    let path = std::env::current_exe().ok()?;
-    let modified = path.metadata().ok()?.modified().ok()?;
-    let dt: DateTime<Local> = modified.into();
-    Some(dt.to_rfc3339())
 }
 
 fn parse_args() -> Result<Args> {
@@ -567,7 +580,8 @@ when the location helper is running. One run writes one trip file.
   --log PATH     write the trip file here
 
 The trip file is created under ~/Library/Application Support/amtrak-network-monitor/trips/.
-Leave the location helper running for the whole trip. q quits.
+It keeps the town and a position to about 100 m. It does not keep a street, a Wi-Fi name, or an IP address.
+s opens settings. space there turns saving on or off. q quits.
 "
                 );
                 std::process::exit(0);
@@ -646,6 +660,58 @@ mod tests {
         );
         assert_eq!(slug("Northeast Regional"), "northeast-regional");
         assert_eq!(slug("   "), "trip");
+    }
+
+    #[test]
+    fn a_saved_sample_has_no_street_network_name_or_precise_position() {
+        let loaded = Loaded {
+            view: Snapshot {
+                at: Local.with_ymd_and_hms(2026, 10, 28, 12, 0, 0).unwrap(),
+                line: Some("Lake Shore Limited".into()),
+                place: "New York, NY".into(),
+                position: Some((40.760052, -73.966937)),
+                motion: None,
+                tone: Tone::Clear,
+                pace: "19 ms, no loss".into(),
+                page: "test page loaded in 0.08 s".into(),
+                path: "iPhone hotspot over Wi-Fi".into(),
+                is_default: true,
+                history: Vec::new(),
+                saving: true,
+                sample_age: Some(Duration::from_secs(2)),
+                fix_age: Some(Duration::from_secs(5)),
+            },
+            sample_stamp: None,
+            row: None,
+        };
+        let value = sample_record(&loaded, "sample");
+        let text = value.to_string();
+        assert!(text.contains("New York, NY"));
+        assert!(text.contains("40.76"));
+        assert!(!text.contains("40.760052"));
+        assert!(!text.contains("73.966937"));
+        assert!(!text.contains("ssid"));
+        assert!(!text.contains("ip"));
+        assert!(!text.contains("acc_m"));
+        assert!(!text.contains("source"));
+        assert!(!text.contains("sampler"));
+        assert!(value.get("loss_pct").is_some());
+    }
+
+    #[test]
+    fn the_settings_file_is_private_to_the_user() {
+        let dir = std::env::temp_dir().join(format!("amtrak-nm-settings-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let home_file = path.clone();
+        // store_gather writes under the support dir. Write through append's rules instead.
+        append(&home_file, &json!({"save_trip": false})).unwrap();
+        let mode = fs::metadata(&home_file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let parent_mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(parent_mode, 0o700);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -29,13 +29,15 @@ Then start the monitor with the train you are on:
 cargo run --release -- --line "Lake Shore Limited"
 ```
 
-The screen shows the town, how the connection is doing right now, and a row of blocks for the last half hour. One block is 30 seconds. A time under a block, such as `2:20`, is that block. `q` quits.
+The screen shows the town, how the connection is doing right now, and a row of blocks for the last half hour. One block is 30 seconds. A time under a block, such as `2:20`, is that block. `s` opens settings. `q` quits.
 
-Quit prints the trip file. It also appears in the footer as `recording …jsonl`. The file is under:
+In settings, space turns saving on or off. Saving is on unless you turn it off. The choice is remembered.
+
+Quit prints the trip file when saving is on. The file is under:
 
 `~/Library/Application Support/amtrak-network-monitor/trips/`
 
-Send that one file. It contains the time, coordinates, a place name, packet loss, round-trip time, and whether a small test page loaded. It does not contain a Wi-Fi name or an IP address.
+Only your user can read that folder. Send the one file from the trip. A saved row has the time, the town, a position to about 100 meters, packet loss, round-trip time, and whether a small test page loaded. A street address, a Wi-Fi name, and an IP address are not saved. The file is not uploaded.
 
 ## If the town stops changing
 

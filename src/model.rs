@@ -33,7 +33,6 @@ pub struct Snapshot {
     pub line: Option<String>,
     pub place: String,
     pub position: Option<(f64, f64)>,
-    pub accuracy_m: Option<f64>,
     pub motion: Option<String>,
     pub tone: Tone,
     pub pace: String,
@@ -41,8 +40,7 @@ pub struct Snapshot {
     pub path: String,
     pub is_default: bool,
     pub history: Vec<MinuteLight>,
-    pub source: String,
-    pub recording: String,
+    pub saving: bool,
     pub sample_age: Option<Duration>,
     pub fix_age: Option<Duration>,
 }
@@ -141,6 +139,38 @@ pub fn short_place(raw: &str) -> String {
         [only] => (*only).to_string(),
         [.., town, st] => format!("{town}, {st}"),
     }
+}
+
+/// Town and state only. A street, a house number, or a road name is dropped.
+pub fn stored_place(raw: &str) -> String {
+    let short = short_place(raw);
+    let kept: Vec<&str> = short
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && !is_street(part))
+        .collect();
+    kept.join(", ")
+}
+
+fn is_street(part: &str) -> bool {
+    if part.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    let lower = format!(" {part} ").to_ascii_lowercase();
+    [
+        " street ", " st ", " avenue ", " ave ", " road ", " rd ", " boulevard ", " blvd ",
+        " drive ", " dr ", " lane ", " ln ", " pike ", " highway ", " hwy ",
+    ]
+    .iter()
+    .any(|word| lower.contains(word))
+}
+
+/// About 100 meters. Finer than this identifies a building.
+pub fn stored_position(lat: f64, lon: f64) -> (f64, f64) {
+    (
+        (lat * 1000.0).round() / 1000.0,
+        (lon * 1000.0).round() / 1000.0,
+    )
 }
 
 pub fn motion_between(older: &Fix, newer: &Fix) -> Option<String> {
@@ -297,6 +327,17 @@ mod tests {
             short_place("Horseshoe Curve, Altoona, PA"),
             "Horseshoe Curve, PA"
         );
+    }
+
+    #[test]
+    fn a_saved_place_keeps_the_town_and_drops_the_street() {
+        assert_eq!(stored_place("150 Helen St, Lewistown, PA"), "Lewistown, PA");
+        assert_eq!(stored_place("207 E 57th St, New York, NY"), "New York, NY");
+        assert_eq!(stored_place("Horseshoe Curve, Altoona, PA"), "Horseshoe Curve, PA");
+        assert_eq!(stored_place("150 Helen St"), "");
+        let (lat, lon) = stored_position(40.760052, -73.966937);
+        assert_eq!(lat, 40.760);
+        assert_eq!(lon, -73.967);
     }
 
     #[test]

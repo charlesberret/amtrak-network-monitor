@@ -162,10 +162,6 @@ pub fn sampler_pid() -> Option<u32> {
     process_with(is_sampler_arg)
 }
 
-pub fn location_helper_pid() -> Option<u32> {
-    process_with(is_location_helper_arg)
-}
-
 /// The older helper writes `~/.cache/link-quality/loc-last.tsv`.
 /// `AmtrakLocation` writes the shared app's own file and is not this.
 pub fn legacy_location_pid() -> Option<u32> {

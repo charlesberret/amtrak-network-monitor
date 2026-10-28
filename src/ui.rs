@@ -90,11 +90,10 @@ fn body_lines(snap: &Snapshot, width: u16) -> Vec<Line<'static>> {
         ),
     ];
     if let Some((lat, lon)) = snap.position {
-        let mut coords = format!("  {lat:.3}, {lon:.3}");
-        if let Some(acc) = snap.accuracy_m {
-            coords = format!("{coords}   about {acc:.0} m");
-        }
-        lines.push(dim(clip(&coords, cols(width))));
+        lines.push(dim(clip(
+            &format!("  {lat:.3}, {lon:.3}"),
+            cols(width),
+        )));
     }
     if let Some(motion) = &snap.motion {
         lines.push(dim(clip(&format!("  {motion}"), cols(width))));
@@ -220,16 +219,59 @@ fn footer(snap: &Snapshot, width: u16) -> Vec<Line<'static>> {
         Some(d) => format!("updated {}s ago", d.as_secs()),
         None => "no measurement yet".to_string(),
     };
-    let mut lines = vec![
+    let saving = if snap.saving {
+        "saving this trip"
+    } else {
+        "not saving"
+    };
+    vec![
         Line::from(Span::styled(rule(width), Style::new().fg(RULE))),
-        dim(clip(&format!("  {}", snap.source), cols(width))),
         dim(clip(&format!("  {age}"), cols(width))),
+        dim(clip(&format!("  {saving}"), cols(width))),
+        dim(clip("  s  settings     q  quit", cols(width))),
+    ]
+}
+
+pub fn draw_settings(frame: &mut Frame, snap: &Snapshot) {
+    let area = frame.area();
+    frame.render_widget(Paragraph::new(""), area);
+    let width = area.width;
+    let saving = if snap.saving { "On" } else { "Off" };
+    let lines = vec![
+        blank(),
+        styled(
+            clip("  Settings", cols(width)),
+            Style::new().fg(INK).add_modifier(Modifier::BOLD),
+        ),
+        blank(),
+        ink(clip(
+            &format!("  Save this trip          {saving}"),
+            cols(width),
+        )),
+        blank(),
+        dim(clip("  Position                about 100 m", cols(width))),
+        dim(clip("  Town                    kept", cols(width))),
+        dim(clip("  Street address          not saved", cols(width))),
+        dim(clip("  Wi-Fi name              not saved", cols(width))),
+        dim(clip("  IP address              not saved", cols(width))),
+        blank(),
+        dim(clip("  space  save on or off", cols(width))),
+        dim(clip("  s  close", cols(width))),
+        dim(clip("  q  quit", cols(width))),
     ];
-    if !snap.recording.is_empty() {
-        lines.push(dim(clip(&format!("  {}", snap.recording), cols(width))));
-    }
-    lines.push(dim(clip("  q  quit", cols(width))));
-    lines
+    let rects = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Min(lines.len() as u16),
+    ])
+    .split(area);
+    render_line(frame, rects[0], header(snap, width));
+    render_line(
+        frame,
+        rects[1],
+        Line::from(Span::styled(rule(width), Style::new().fg(RULE))),
+    );
+    render_lines(frame, rects[2], lines);
 }
 
 fn tone_color(tone: Tone) -> Color {
@@ -315,7 +357,6 @@ mod tests {
             line: Some("Pennsylvanian".into()),
             place: "Millerstown, PA".into(),
             position: Some((40.536, -77.150)),
-            accuracy_m: Some(40.0),
             motion: None,
             tone: Tone::Clear,
             pace: "54 ms, no loss".into(),
@@ -323,8 +364,7 @@ mod tests {
             path: "iPhone hotspot over Wi-Fi".into(),
             is_default: true,
             history,
-            source: "Using the sampler already running".into(),
-            recording: String::new(),
+            saving: true,
             sample_age: Some(Duration::from_secs(3)),
             fix_age: Some(Duration::from_secs(20)),
         }
@@ -418,5 +458,33 @@ mod tests {
         assert!(screen.contains("Amtrak Pennsylvanian Network Monitor"));
         assert!(screen.contains("Millerstown, PA, 48 min ago"));
         assert!(!screen.contains("location 48 min ago"));
+        assert!(!screen.contains("sampler"));
+        assert!(!screen.contains("Measuring the connection"));
+    }
+
+    #[test]
+    fn settings_states_what_is_saved_and_what_is_left_out() {
+        let view = snap(vec![]);
+        let backend = TestBackend::new(60, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_settings(frame, &view))
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let screen: String = (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(screen.contains("Save this trip"));
+        assert!(screen.contains("On"));
+        assert!(screen.contains("Street address"));
+        assert!(screen.contains("not saved"));
+        assert!(screen.contains("Wi-Fi name"));
+        assert!(screen.contains("IP address"));
+        assert!(!screen.contains("sampler"));
     }
 }
