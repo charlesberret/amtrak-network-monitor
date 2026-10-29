@@ -1,8 +1,8 @@
 # Amtrak Network Monitor
 
-Everyone who rides Amtrak knows the Wi-Fi fails, and if you ride enough you might even know where coverage is worst. This program turns that knowledge into measurements. Run it in a terminal during your ride and it measures your connection quality, displays it onscreen for reference, tells you exactly where the train is, and logs this data in a private file.
+Everyone who rides Amtrak knows the Wi-Fi fails, and if you ride enough you might even know where coverage is worst. This program turns that knowledge into measurements. Run it in a terminal during your ride and it measures your connection quality, displays it onscreen for reference, shows where the train is, and logs this data in a private file.
 
-The aim of the Amtrak Network Monitor (AmNetMon?) is evidence: with enough rides logged by enough people, we can show in plain numbers where the connection fails and how badly, so that riders and the people responsible for the network are seeing the same data. That's the goal, not where things stand. If you want this data to reach the level where it can publicly demonstrate the scale of this problem, please contribute.
+The aim of the Amtrak Network Monitor (AmNetMon?) is evidence: with enough rides logged by enough people, we can show in plain numbers where the connection fails and how badly, so that riders and the people responsible for the network are seeing the same data. That's the goal, not where things stand. If you want this data to reach the level where it can publicly demonstrate the scale of this problem, please contribute. Sharing rides is limited to a small test group for now (see *Sharing a ride* below).
 
 Note: It might sound like I'm taking Amtrak to task for this problem, but the bigger problem is the maintainers of our nationwide mobile network infrastructure have not invested in improving the many dead zones along rural stretches of major train lines. This is an egregious oversight given that train lines have always been the easiest routes for installing long-distance communications infrastructure (literally for nearly two centuries, going back to the fucking telegraph).
 
@@ -11,9 +11,9 @@ Note: It might sound like I'm taking Amtrak to task for this problem, but the bi
 The program takes one sample every 20 seconds (but you can change the rate or contents of these samples in the settings):
 
 - **Ping.** Three pings to Cloudflare (`1.1.1.1`). That lets us measure packet loss and the average round-trip time.
-- **Test page.** One request for `http://captive.apple.com/hotspot-detect.html`, given 8 seconds to answer. The page counts as loaded when the reply status is 200. To keep overhead low, the program checks only the status, not the page contents.
-- **Place.** Your position within about 100 meters, taken from the location helper on macOS or the system's location service on Linux. On macOS the town name comes from Apple's geocoder, so Apple does see your position (then again, you're only telling them that you're on a train). On Linux, the program does not look up a town, just your geo-coordinates, so the app's town line shows your position without a name.
-- **Connection.** You're asked this question when you start the tool: are you on Amtrak's free Wi-Fi, or your own service, like a phone tether or hotspot. That label is what allows us to compare the WiFi provided by Amtrak to the general mobile connection quality along the same train route.
+- **Test page.** One request for `http://captive.apple.com/hotspot-detect.html`, given 8 seconds to answer. The page counts as loaded when the reply status is 200. The program checks only the status, not the page contents.
+- **Place.** Your position within about 100 meters, taken from the location helper on macOS or the system's location service on Linux. On macOS the town name comes from Apple's geocoder, so Apple does see your exact position (the rounding happens later, when your trip is saved). On Linux, the program does not look up a town, just your geo-coordinates, so the app's town line shows your position without a name.
+- **Connection.** You're asked this question when you start the tool: are you on Amtrak's free Wi-Fi, or your own service, like a phone tether or hotspot. That label is what allows us to compare the Wi-Fi provided by Amtrak to the general mobile connection quality along the same train route.
 
 The one-word verdict on screen for your _connection quality_ is a rule over those numbers. 
 - *Clear* means the page loaded, loss is 5% or less, and the round trip is under 250 ms.
@@ -33,7 +33,7 @@ Any Amtrak train works. The tool even works when you're not on a train. And fran
 
 ## Data privacy
 
-When you start the program, it asks if you want to keep an anonymous copy next to the trip file in your local file system. It stays on your computer unless you share it.
+When you start the program, it asks if you want to keep an anonymous copy next to the trip file in your local file system. It stays on your computer unless you share it. The copy is thinner than the trip file: the train line, the position, and the measurements, with no time, no town, and no connection label. It is what `share` sends.
 
 A saved row has the time, the town (on macOS), a position rounded to about 100 meters, the measurements above, and which connection you named. It has no street address, no Wi-Fi name, and no IP address, and no setting saves them. The trip file is readable only by your user.
 
@@ -45,7 +45,7 @@ The monitor also talks to two servers of its own while it runs: Cloudflare for t
 
 For now, only Rust and a terminal. The laptop can be on Amtrak Wi-Fi, tethered to your phone, or connected to a hotspot. Desktop and mobile builds are later work. Today you run this on your laptop, in a terminal.
 
-On macOS, you need the Xcode command line tools as well. Position comes from a small helper, because a terminal program cannot ask macOS for location data. The helper is not a version of the monitor. It only writes your location to a file that the monitor reads. If you're running this on a Mac, leave the helper open for the whole trip.
+On macOS, you need the Xcode command line tools as well, plus a small location helper app. A terminal program can't ask macOS for location data, so the helper does it for the monitor. It has its own section, *On a Mac*, below.
 
 On Linux, `ip` (iproute2), `ping` (iputils), and `curl` are used for the connection check. Run the monitor in a terminal inside a live, logged-in graphical session. The program asks the location portal, and your system shows its own allow dialog. Over SSH, or with no portal, the town line says it is waiting for a location. `--loc PATH` still reads a location file you already have.
 
@@ -57,15 +57,30 @@ In this directory:
 cargo build --release
 ```
 
-On macOS, also build the location helper. It writes `~/Applications/Amtrak Location.app`.
+On macOS, build the location helper next (see *On a Mac*, below).
+
+## On a Mac: the location helper
+
+Linux readers can skip this section.
+
+The helper is a small app called **Amtrak Location**. It is not a version of the monitor. All it does is ask macOS for Location and write your position, about every 15 seconds, to a file that the monitor reads.
+
+Build it once. It writes `~/Applications/Amtrak Location.app`:
 
 ```bash
 bash location/build
 ```
 
+Before each trip, open **Amtrak Location**, allow Location when macOS asks, and leave it open until you get off. Without it the monitor still records the connection, but it has no position and no town.
+
+Two things to know:
+
+- The helper keeps its own log of every fix, at `~/Library/Application Support/amtrak-network-monitor/location.tsv`. That log is not rounded, and it can include a street or place name from Apple's geocoder. The "no street address" promise above describes the trip file the monitor writes, not this log. It stays on your Mac, and you can delete it whenever you like.
+- On a phone hotspot the helper can keep the last place it resolved. The town line then gains an age, such as `Albany, NY, 40 min ago`. The connection samples are still recorded, and a stuck place is not filled in as if the train stayed there.
+
 ## On the train
 
-On macOS, open **Amtrak Location**, allow Location when macOS asks, and leave it open for the whole trip. Then start the monitor:
+Start the monitor (on a Mac, with the location helper already open):
 
 ```bash
 cargo run --release
@@ -75,8 +90,6 @@ It asks if you are riding Amtrak. If you are, you pick the line, or continue wit
 
 Start it when you board and quit it when you get off. A gap is a gap. The program does not guess where a ride began or ended. `q` quits, and when saving is on, quitting prints the trip file's path.
 
-If the town stops changing on a phone hotspot, the helper has kept the last place it resolved. The town line then gains an age, such as `Albany, NY, 40 min ago`. Leave Amtrak Location open. The connection samples are still recorded, and a stuck place is not filled in as if the train stayed there.
-
 ## Settings
 
 `s` opens settings. Up and down move, space changes a row, `s` saves, and `c` cancels. The rows are:
@@ -85,7 +98,7 @@ If the town stops changing on a phone hotspot, the helper has kept the last plac
 - how often to check the connection
 - on Linux, how often to ask for a location (applies the next time you start)
 
-Ping, the test page, and the position can each be turned off. The macOS helper writes about every 15 seconds regardless.
+Ping, the test page, and the position can each be turned off.
 
 ## Where the files go
 
@@ -104,7 +117,7 @@ Sharing only works if someone running a receiver has given you a `share.json` fi
 cargo run --release -- share
 ```
 
-It takes your newest anonymous copy, tells you how many rows it holds and where it would go, and asks `y/N` before sending. It sends with `curl`. The receiver only takes the line names this program offers, so a ride whose line you typed by hand with `--line` will be refused. Please don't post a trip file anywhere public, such as a GitHub issue.
+It takes your newest anonymous copy, tells you how many rows it holds and where it would go, and asks `y/N` before sending. It sends with `curl`. The receiver only accepts the line names the picker offers, so a ride with any other line name will be refused. Please don't post a trip file anywhere public, such as a GitHub issue.
 
 Like any web request, a send shows your network address to the server that receives it. The file itself does not contain it.
 
