@@ -1,8 +1,8 @@
-# Amtrak Network Monitor (AmNetMon?)
+# Amtrak Network Monitor
 
 Everyone who rides Amtrak knows the Wi-Fi fails, and if you ride enough you might even know where coverage is worst. This program turns that knowledge into measurements. Run it in a terminal during your ride and it measures your connection quality, displays it onscreen for reference, tells you exactly where the train is, and logs this data in a private file.
 
-The aim here is evidence: with enough rides logged by enough people, we can show in plain numbers where the connection fails and how badly, so that riders and the people responsible for the network are seeing the same data. That's the goal, not where things stand. If you want this data to reach the level where it can publicly demonstrate the scale of this problem, please contribute.
+The aim of the Amtrak Network Monitor (AmNetMon?) is evidence: with enough rides logged by enough people, we can show in plain numbers where the connection fails and how badly, so that riders and the people responsible for the network are seeing the same data. That's the goal, not where things stand. If you want this data to reach the level where it can publicly demonstrate the scale of this problem, please contribute.
 
 Note: It might sound like I'm taking Amtrak to task for this problem, but the bigger problem is the maintainers of our nationwide mobile network infrastructure have not invested in improving the many dead zones along rural stretches of major train lines. This is an egregious oversight given that train lines have always been the easiest routes for installing long-distance communications infrastructure (literally for nearly two centuries, going back to the fucking telegraph).
 
