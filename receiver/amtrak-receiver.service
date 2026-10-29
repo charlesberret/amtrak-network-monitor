@@ -1,0 +1,33 @@
+[Unit]
+Description=Amtrak Network Monitor receiver
+After=network.target
+
+[Service]
+User=amtrak-recv
+Group=amtrak-recv
+Environment=AMTRAK_RECEIVER_DIR=/var/lib/amtrak-receiver
+Environment=AMTRAK_RECEIVER_PORT=8765
+ExecStart=/usr/bin/python3 /opt/amtrak-receiver/receiver.py serve
+Restart=on-failure
+RestartSec=5
+
+# Owns /var/lib/amtrak-receiver, mode 0700.
+StateDirectory=amtrak-receiver
+StateDirectoryMode=0700
+UMask=0077
+
+# It listens on loopback only and writes only to its own folder.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

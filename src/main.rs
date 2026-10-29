@@ -9,6 +9,7 @@ mod locate;
 mod model;
 mod probe;
 mod settings;
+mod share;
 mod ui;
 
 use crate::feed::{default_row, read_fixes, read_links, Fix, LinkRow};
@@ -276,6 +277,11 @@ fn remember_session(args: &Args, gather: &Gather, ride: &Ride) {
 }
 
 fn main() -> Result<()> {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.first().map(String::as_str) == Some("share") {
+        let stdin = std::io::stdin();
+        return share::run(&raw[1..], &support_dir(&home_dir()), &mut stdin.lock());
+    }
     let mut args = parse_args()?;
     resolve_inputs(&mut args);
     let mut gather = load_gather(&home_dir());
@@ -878,21 +884,28 @@ fn parse_args() -> Result<Args> {
                     "\
 amtrak-network-monitor
 
-A terminal utility. It records the connection this computer is using,
-and where it is when a location file is being written.
+Measure the network on an Amtrak ride, and where the train is. Every 20
+seconds, or the rate you set, it checks packet loss, round-trip time, and
+whether a test page loads, and pairs that with your position. One ride
+writes one private file.
 
 On start it asks if you are riding Amtrak, which line, how you are
 connected, and whether to keep the trip on this computer. Settings choose
 how often to measure, and whether ping, the test page, and the position
-are kept. Keeping the trip is what a later warning and a comparison use.
-If you keep it, you can also keep an anonymous copy: the train line,
-the location, and the connection measurement. Nothing is uploaded.
+are kept. If you keep the trip, you can also keep an anonymous copy: the
+train line, the location, and the connection measurement. Nothing is sent
+unless you run `share` yourself.
 
   --line NAME    used when you continue without picking a line
   --once         print one reading and exit. Does not ask.
   --train PATH   follow this connection log instead of measuring
   --loc PATH     read location fixes from this file
   --log PATH     write the trip file here
+
+  share [FILE] [--config PATH]
+                 after a ride, send the anonymous copy to a receiver, if you
+                 have a share.json for one. It shows what is in the copy and
+                 asks first. Without FILE it takes the newest copy.
 
 On macOS the trip file is under ~/Library/Application Support/amtrak-network-monitor/trips/.
 On Linux it is under $XDG_STATE_HOME/amtrak-network-monitor/trips/, or .local/state/amtrak-network-monitor/trips/ in the home directory.

@@ -132,7 +132,7 @@ impl Wizard {
                     blank(),
                     text("Only the train line, the location to about 100 m, and the connection measurement. A public map of coverage, and of how the lines differ, would use those."),
                     blank(),
-                    text("There is no public database to send this to yet. A yes keeps that anonymous copy on this computer."),
+                    text("A yes keeps that anonymous copy on this computer. Nothing is sent until you run `share` after the ride."),
                 ],
                 pinned: None,
                 foot: Foot::Quit,
@@ -505,7 +505,7 @@ mod tests {
         assert!(text.contains("train line"));
         assert!(text.contains("location to about 100 m"));
         assert!(text.contains("connection measurement"));
-        assert!(text.contains("no public database"));
+        assert!(text.contains("Nothing is sent until you run `share`"));
         match wizard.push(Press::Char('y')) {
             Outcome::Done(board) => {
                 assert!(board.on_amtrak);
