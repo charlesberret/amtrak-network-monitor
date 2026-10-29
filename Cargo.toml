@@ -3,6 +3,7 @@ name = "amtrak-network-monitor"
 version = "0.1.0"
 edition = "2021"
 description = "Record a ride: position and the connection in use, shown as it happens."
+license = "MIT"
 
 [[bin]]
 name = "amtrak-network-monitor"
@@ -14,3 +15,8 @@ chrono = { version = "0.4", features = ["clock"] }
 crossterm = "0.28"
 ratatui = "0.29"
 serde_json = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["macros", "rt", "time"] }

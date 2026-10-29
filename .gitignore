@@ -1,3 +1,8 @@
 /target
 /logs
 .cargo/
+.local/
+HANDOFF.md
+/docs/
+/intel/
+/scripts/

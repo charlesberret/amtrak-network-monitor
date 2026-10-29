@@ -19,6 +19,10 @@ pub struct LinkRow {
     pub http_code: Option<u16>,
     pub http_s: Option<f64>,
     pub is_default: bool,
+    /// False when this row was taken with ping turned off.
+    pub ping_on: bool,
+    /// False when this row was taken with the test page turned off.
+    pub http_on: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +87,8 @@ fn parse_link_line(line: &str) -> Option<LinkRow> {
         http_code,
         http_s,
         is_default: cols[2] == default_dev && default_dev != "-",
+        ping_on: true,
+        http_on: true,
     })
 }
 

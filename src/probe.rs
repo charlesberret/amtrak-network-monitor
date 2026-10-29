@@ -6,19 +6,28 @@ use crate::feed::LinkRow;
 use chrono::Local;
 use std::process::Command;
 
-pub fn measure_default() -> Option<LinkRow> {
+pub struct ProbePlan {
+    pub ping: bool,
+    pub http: bool,
+}
+
+pub fn measure_default(plan: ProbePlan) -> Option<LinkRow> {
     let dev = default_dev()?;
     let ip = interface_addr(&dev);
-    let (loss_pct, rtt_ms, http_code, http_s) = if ip.is_some() {
-        let (loss, rtt) = ping_dev(&dev);
-        let (code, secs) = http_dev(&dev);
-        (loss, rtt, code, secs)
+    let wireless = is_wireless(&dev);
+    let (loss_pct, rtt_ms) = if plan.ping && ip.is_some() {
+        ping_dev(&dev)
     } else {
-        (None, None, None, None)
+        (None, None)
+    };
+    let (http_code, http_s) = if plan.http && ip.is_some() {
+        http_dev(&dev)
+    } else {
+        (None, None)
     };
     Some(LinkRow {
         at: Local::now(),
-        path: link_kind(&dev, ip.as_deref()),
+        path: link_kind(&dev, ip.as_deref(), wireless),
         dev,
         ip,
         loss_pct,
@@ -26,10 +35,16 @@ pub fn measure_default() -> Option<LinkRow> {
         http_code,
         http_s,
         is_default: true,
+        ping_on: plan.ping,
+        http_on: plan.http,
     })
 }
 
-fn link_kind(dev: &str, ip: Option<&str>) -> String {
+/// `wireless` comes from sysfs on Linux. macOS has no sysfs, so the `en*` names stay.
+pub fn link_kind(dev: &str, ip: Option<&str>, wireless: bool) -> String {
+    if wireless {
+        return "wifi".to_string();
+    }
     let hotspot = ip.is_some_and(|ip| ip.starts_with("172.20.10."));
     if hotspot && dev != "en0" {
         "iphone-usb".to_string()
@@ -40,12 +55,13 @@ fn link_kind(dev: &str, ip: Option<&str>) -> String {
     }
 }
 
-fn default_dev() -> Option<String> {
-    let out = Command::new("route")
-        .args(["-n", "get", "-inet", "default"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
+fn is_wireless(dev: &str) -> bool {
+    let base = std::path::Path::new("/sys/class/net").join(dev);
+    base.join("wireless").exists() || base.join("phy80211").exists()
+}
+
+/// macOS `route` prints `interface:`. Linux `ip route` prints `dev wlan0`.
+pub fn parse_default_dev(text: &str) -> Option<String> {
     for line in text.lines() {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("interface:") {
@@ -55,26 +71,74 @@ fn default_dev() -> Option<String> {
             }
         }
     }
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        while let Some(tok) = parts.next() {
+            if tok == "dev" {
+                let dev = parts.next()?.trim();
+                if !dev.is_empty() {
+                    return Some(dev.to_string());
+                }
+            }
+        }
+    }
     None
 }
 
-fn interface_addr(dev: &str) -> Option<String> {
-    let out = Command::new("ipconfig")
-        .args(["getifaddr", dev])
-        .output()
-        .ok()?;
-    let ip = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if ip.is_empty() {
+/// `ip -o addr` prints `inet 192.0.2.4/24`. A bare address is the macOS `ipconfig` line.
+pub fn parse_iface_addr(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        while let Some(tok) = parts.next() {
+            if tok == "inet" {
+                let addr = parts.next()?.split('/').next()?.trim();
+                if !addr.is_empty() {
+                    return Some(addr.to_string());
+                }
+            }
+        }
+    }
+    let bare = text.trim();
+    if bare.is_empty() || bare.contains(' ') {
         None
     } else {
-        Some(ip)
+        Some(bare.to_string())
     }
 }
 
+fn default_dev() -> Option<String> {
+    if let Some(text) = command_stdout("ip", &["-4", "route", "show", "default"]) {
+        if let Some(dev) = parse_default_dev(&text) {
+            return Some(dev);
+        }
+    }
+    let text = command_stdout("route", &["-n", "get", "-inet", "default"])?;
+    parse_default_dev(&text)
+}
+
+fn interface_addr(dev: &str) -> Option<String> {
+    if let Some(text) = command_stdout("ip", &["-4", "-o", "addr", "show", "dev", dev]) {
+        if let Some(ip) = parse_iface_addr(&text) {
+            return Some(ip);
+        }
+    }
+    let text = command_stdout("ipconfig", &["getifaddr", dev])?;
+    parse_iface_addr(&text)
+}
+
+/// Linux `-W` is seconds. macOS `-W` is milliseconds. The numbers must not be shared.
+pub fn ping_args(os: &str, dev: &str) -> Vec<String> {
+    let args: &[&str] = if os == "linux" {
+        &["-I", dev, "-c", "3", "-W", "1", "-n", "1.1.1.1"]
+    } else {
+        &["-b", dev, "-c", "3", "-W", "1000", "1.1.1.1"]
+    };
+    args.iter().map(|arg| (*arg).to_string()).collect()
+}
+
 fn ping_dev(dev: &str) -> (Option<f64>, Option<f64>) {
-    let out = Command::new("ping")
-        .args(["-b", dev, "-c", "3", "-W", "1000", "1.1.1.1"])
-        .output();
+    let args = ping_args(std::env::consts::OS, dev);
+    let out = Command::new("ping").args(&args).output();
     let text = match out {
         Ok(out) => {
             String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr)
@@ -124,12 +188,23 @@ pub fn parse_loss(text: &str) -> Option<f64> {
 pub fn parse_rtt(text: &str) -> Option<f64> {
     for line in text.lines() {
         let line = line.trim();
-        if let Some(rest) = line.strip_prefix("round-trip ") {
+        let rest = line
+            .strip_prefix("round-trip ")
+            .or_else(|| line.strip_prefix("rtt "));
+        if let Some(rest) = rest {
             let avg = rest.split('=').nth(1)?.trim().split('/').nth(1)?;
             return avg.trim().parse().ok();
         }
     }
     None
+}
+
+fn command_stdout(program: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new(program).args(args).output().ok()?;
+    if !out.status.success() && out.stdout.is_empty() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 /// The sampler this machine may already be running. Matched by the program
@@ -201,6 +276,41 @@ round-trip min/avg/max/stddev = 39.181/49.963/78.854/16.2 ms
     }
 
     #[test]
+    fn linux_ping_summary_uses_rtt() {
+        let text = "\
+3 packets transmitted, 3 received, 0% packet loss, time 2002ms
+rtt min/avg/max/mdev = 11.054/12.438/14.102/1.280 ms
+";
+        assert_eq!(parse_loss(text), Some(0.0));
+        assert_eq!(parse_rtt(text), Some(12.438));
+    }
+
+    #[test]
+    fn linux_route_and_address_parse() {
+        let route = "default via 10.0.0.1 dev wlp3s0 proto dhcp metric 600\n";
+        assert_eq!(parse_default_dev(route).as_deref(), Some("wlp3s0"));
+        let addr = "3: wlp3s0    inet 192.0.2.8/24 brd 192.0.2.255 scope global dynamic wlp3s0\n";
+        assert_eq!(parse_iface_addr(addr).as_deref(), Some("192.0.2.8"));
+        assert_eq!(
+            parse_default_dev("   interface: en0\n").as_deref(),
+            Some("en0")
+        );
+        assert_eq!(parse_iface_addr("10.1.2.3\n").as_deref(), Some("10.1.2.3"));
+    }
+
+    #[test]
+    fn ping_timeout_is_one_second_on_linux_and_milliseconds_on_macos() {
+        assert_eq!(
+            ping_args("linux", "wlp3s0"),
+            ["-I", "wlp3s0", "-c", "3", "-W", "1", "-n", "1.1.1.1"]
+        );
+        assert_eq!(
+            ping_args("macos", "en0"),
+            ["-b", "en0", "-c", "3", "-W", "1000", "1.1.1.1"]
+        );
+    }
+
+    #[test]
     fn sampler_name_is_exact() {
         assert!(is_sampler_arg("link-quality"));
         assert!(is_sampler_arg("/Users/someone/bin/link-quality"));
@@ -216,9 +326,12 @@ round-trip min/avg/max/stddev = 39.181/49.963/78.854/16.2 ms
 
     #[test]
     fn hotspot_on_wifi_stays_wifi() {
-        assert_eq!(link_kind("en0", Some("172.20.10.4")), "wifi");
-        assert_eq!(link_kind("en7", Some("172.20.10.4")), "iphone-usb");
-        assert_eq!(link_kind("en0", Some("192.168.1.20")), "wifi");
-        assert_eq!(link_kind("bridge0", None), "other");
+        assert_eq!(link_kind("en0", Some("172.20.10.4"), false), "wifi");
+        assert_eq!(link_kind("en7", Some("172.20.10.4"), false), "iphone-usb");
+        assert_eq!(link_kind("en0", Some("192.168.1.20"), false), "wifi");
+        assert_eq!(link_kind("bridge0", None, false), "other");
+        assert_eq!(link_kind("wlp3s0", Some("172.20.10.4"), true), "wifi");
+        assert_eq!(link_kind("enx00", Some("172.20.10.4"), false), "iphone-usb");
+        assert_eq!(link_kind("wlp3s0", Some("192.0.2.8"), true), "wifi");
     }
 }

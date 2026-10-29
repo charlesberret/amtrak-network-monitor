@@ -1,5 +1,6 @@
 //! The screen for a ride. One colored word, the rest quiet.
 
+use crate::load::{Foot, LineTone, LoadView};
 use crate::model::{Snapshot, Tone};
 use chrono::Timelike;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -11,6 +12,10 @@ use ratatui::Frame;
 const INK: Color = Color::Rgb(214, 210, 200);
 const DIM: Color = Color::Rgb(120, 116, 108);
 const RULE: Color = Color::Rgb(68, 66, 62);
+const KEY: Color = Color::Rgb(64, 132, 186);
+const CABIN_GLOW: Color = Color::Rgb(245, 215, 130);
+const CLEAR_GREEN: Color = Color::Rgb(40, 146, 82);
+const UNEVEN_AMBER: Color = Color::Rgb(184, 138, 40);
 
 pub fn draw(frame: &mut Frame, snap: &Snapshot) {
     let area = frame.area();
@@ -61,11 +66,18 @@ pub fn draw(frame: &mut Frame, snap: &Snapshot) {
     }
 }
 
-fn header(snap: &Snapshot, width: u16) -> Line<'static> {
-    let title = match snap.line.as_deref() {
+pub fn monitor_title(on_amtrak: bool, line: Option<&str>) -> String {
+    if !on_amtrak {
+        return "Network Monitor (Not on Amtrak)".to_string();
+    }
+    match line {
         Some(line) if !line.is_empty() => format!("Amtrak {line} Network Monitor"),
         _ => "Amtrak Network Monitor".to_string(),
-    };
+    }
+}
+
+fn header(snap: &Snapshot, width: u16) -> Line<'static> {
+    let title = monitor_title(snap.on_amtrak, snap.line.as_deref());
     let clock = format!("  {}", clock_label(snap));
     let room = (width as usize).saturating_sub(clock.chars().count() + 1);
     let title = clip(&format!("  {title}"), room);
@@ -90,10 +102,7 @@ fn body_lines(snap: &Snapshot, width: u16) -> Vec<Line<'static>> {
         ),
     ];
     if let Some((lat, lon)) = snap.position {
-        lines.push(dim(clip(
-            &format!("  {lat:.3}, {lon:.3}"),
-            cols(width),
-        )));
+        lines.push(dim(clip(&format!("  {lat:.3}, {lon:.3}"), cols(width))));
     }
     if let Some(motion) = &snap.motion {
         lines.push(dim(clip(&format!("  {motion}"), cols(width))));
@@ -228,37 +237,77 @@ fn footer(snap: &Snapshot, width: u16) -> Vec<Line<'static>> {
         Line::from(Span::styled(rule(width), Style::new().fg(RULE))),
         dim(clip(&format!("  {age}"), cols(width))),
         dim(clip(&format!("  {saving}"), cols(width))),
-        dim(clip("  s  settings     q  quit", cols(width))),
+        keys_line("quit", "settings"),
     ]
 }
 
-pub fn draw_settings(frame: &mut Frame, snap: &Snapshot) {
+fn keys_line(q_word: &str, s_word: &str) -> Line<'static> {
+    let word = Style::new().fg(DIM);
+    let key = Style::new().fg(KEY);
+    Line::from(vec![
+        Span::styled("  ", word),
+        Span::styled("q", key),
+        Span::styled(format!("  {q_word}     "), word),
+        Span::styled("s", key),
+        Span::styled(format!("  {s_word}"), word),
+    ])
+}
+
+fn settings_keys() -> Line<'static> {
+    let word = Style::new().fg(DIM);
+    let key = Style::new().fg(KEY);
+    Line::from(vec![
+        Span::styled("  ", word),
+        Span::styled("s", key),
+        Span::styled("  save     ", word),
+        Span::styled("c", key),
+        Span::styled("  cancel", word),
+    ])
+}
+
+pub fn draw_settings(frame: &mut Frame, snap: &Snapshot, draft: &crate::settings::SettingsDraft) {
     let area = frame.area();
     frame.render_widget(Paragraph::new(""), area);
     let width = area.width;
-    let saving = if snap.saving { "On" } else { "Off" };
-    let lines = vec![
+    let mut lines = vec![
         blank(),
         styled(
             clip("  Settings", cols(width)),
             Style::new().fg(INK).add_modifier(Modifier::BOLD),
         ),
         blank(),
-        ink(clip(
-            &format!("  Save this trip          {saving}"),
+    ];
+    for row in draft.rows() {
+        let style = if row.selected {
+            Style::new().fg(INK).add_modifier(Modifier::BOLD)
+        } else {
+            Style::new().fg(INK)
+        };
+        lines.push(styled(clip(&row.text, cols(width)), style));
+    }
+    lines.push(blank());
+    let rate_note = if draft.mac_helper {
+        "  Mac helper still writes about every 15 s"
+    } else {
+        "  Location rate applies the next time you start"
+    };
+    lines.extend([
+        dim(clip(rate_note, cols(width))),
+        dim(clip("  A saved position is about 100 m", cols(width))),
+        dim(clip(
+            "  Town                    kept when known",
             cols(width),
         )),
-        blank(),
-        dim(clip("  Position                about 100 m", cols(width))),
-        dim(clip("  Town                    kept", cols(width))),
         dim(clip("  Street address          not saved", cols(width))),
         dim(clip("  Wi-Fi name              not saved", cols(width))),
         dim(clip("  IP address              not saved", cols(width))),
         blank(),
-        dim(clip("  space  save on or off", cols(width))),
-        dim(clip("  s  close", cols(width))),
-        dim(clip("  q  quit", cols(width))),
-    ];
+        dim(clip(
+            "  up and down move. space changes the row.",
+            cols(width),
+        )),
+        settings_keys(),
+    ]);
     let rects = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(1),
@@ -334,6 +383,334 @@ fn styled(text: String, style: Style) -> Line<'static> {
     Line::from(Span::styled(text, style))
 }
 
+pub fn draw_load(frame: &mut Frame, view: &LoadView) {
+    let area = frame.area();
+    frame.render_widget(Paragraph::new(""), area);
+    let width = area.width;
+    let foot = load_foot(view.foot, width);
+    let body: Vec<Line> = view.lines.iter().map(styled_load).collect();
+
+    let anim_lines = if let Some(tick) = view.anim_tick {
+        if area.height >= 18 && area.width >= 50 {
+            Some(animation_frame(tick, width))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut constraints = Vec::new();
+    if let Some(ref anim) = anim_lines {
+        constraints.push(Constraint::Length(anim.len() as u16));
+    }
+    constraints.push(Constraint::Min(1));
+    if view.pinned.is_some() {
+        constraints.push(Constraint::Length(1));
+    }
+    constraints.push(Constraint::Length(foot.len() as u16));
+    let rects = Layout::vertical(constraints).split(area);
+
+    let mut idx = 0;
+    if let Some(anim) = anim_lines {
+        render_lines(frame, rects[idx], anim);
+        idx += 1;
+    }
+    render_lines(frame, rects[idx], body);
+    idx += 1;
+    if let Some(pinned) = &view.pinned {
+        render_line(frame, rects[idx], styled_load(pinned));
+        idx += 1;
+    }
+    render_lines(frame, rects[idx], foot);
+}
+
+pub fn animation_frame(tick: usize, _width: u16) -> Vec<Line<'static>> {
+    let frame = tick % 4;
+    match frame {
+        0 => vec![
+            Line::from(Span::styled(
+                "  ·             *            ·       │        *            ·",
+                Style::new().fg(DIM),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "                                   ──┼──  ",
+                    Style::new().fg(DIM),
+                ),
+                Span::styled(
+                    "· . ( ) . ·",
+                    Style::new().fg(UNEVEN_AMBER).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("            ▲                     ", Style::new().fg(RULE)),
+                Span::styled("/  │  \\", Style::new().fg(DIM)),
+                Span::styled("                    ▲", Style::new().fg(RULE)),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    " ─────────/───\\───/─\\───────────",
+                    Style::new().fg(RULE),
+                ),
+                Span::styled("/────┴────\\", Style::new().fg(DIM)),
+                Span::styled("────────────────/───\\──────────", Style::new().fg(RULE)),
+            ]),
+            Line::from(Span::styled(
+                "     │                                      │",
+                Style::new().fg(DIM),
+            )),
+            Line::from(Span::styled(
+                "    ─┼─· · · · · · · · · · · · · · · · · · ─┼─",
+                Style::new().fg(DIM),
+            )),
+            Line::from(Span::styled(
+                "          ┌──────────┬──────────┬──────────┬──────────┐",
+                Style::new().fg(INK),
+            )),
+            Line::from(vec![
+                Span::styled("     ==<  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█", Style::new().fg(CABIN_GLOW)),
+                Span::styled("   ", Style::new().fg(INK)),
+                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
+                Span::styled(" │", Style::new().fg(INK)),
+            ]),
+            Line::from(Span::styled(
+                " ═════════╧══════════╧══════════╧══════════╧══════════╧═══════════════════",
+                Style::new().fg(RULE),
+            )),
+            blank(),
+        ],
+        1 => vec![
+            Line::from(Span::styled(
+                "  ·             *            ·       │        *            ·",
+                Style::new().fg(DIM),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "                                   ──┼──  ",
+                    Style::new().fg(DIM),
+                ),
+                Span::styled(
+                    "· (( ✦ )) ·",
+                    Style::new().fg(KEY).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("            ▲                     ", Style::new().fg(RULE)),
+                Span::styled("/  │  \\", Style::new().fg(DIM)),
+                Span::styled("     ", Style::new().fg(DIM)),
+                Span::styled("\\", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
+                Span::styled("              ▲", Style::new().fg(RULE)),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    " ─────────/───\\───/─\\───────────",
+                    Style::new().fg(RULE),
+                ),
+                Span::styled("/────┴────\\", Style::new().fg(DIM)),
+                Span::styled("─────", Style::new().fg(RULE)),
+                Span::styled("\\", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
+                Span::styled("──────────/───\\──────────", Style::new().fg(RULE)),
+            ]),
+            Line::from(Span::styled(
+                "        │                                      │",
+                Style::new().fg(DIM),
+            )),
+            Line::from(Span::styled(
+                "       ─┼─· · · · · · · · · · · · · · · · · · ─┼─",
+                Style::new().fg(DIM),
+            )),
+            Line::from(Span::styled(
+                "                ┌──────────┬──────────┬──────────┬──────────┐",
+                Style::new().fg(INK),
+            )),
+            Line::from(vec![
+                Span::styled("           ==<  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█", Style::new().fg(CABIN_GLOW)),
+                Span::styled("   ", Style::new().fg(INK)),
+                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
+                Span::styled(" │", Style::new().fg(INK)),
+            ]),
+            Line::from(Span::styled(
+                " ═══════════════╧══════════╧══════════╧══════════╧══════════╧═════════════",
+                Style::new().fg(RULE),
+            )),
+            blank(),
+        ],
+        2 => vec![
+            Line::from(Span::styled(
+                "  ·             *            ·       │        *            ·",
+                Style::new().fg(DIM),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "                                   ──┼──  ",
+                    Style::new().fg(DIM),
+                ),
+                Span::styled(
+                    "((([CLEAR])))",
+                    Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("            ▲                     ", Style::new().fg(RULE)),
+                Span::styled("/  │  \\", Style::new().fg(DIM)),
+                Span::styled("         ", Style::new().fg(DIM)),
+                Span::styled("│", Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD)),
+                Span::styled("          ▲", Style::new().fg(RULE)),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    " ─────────/───\\───/─\\───────────",
+                    Style::new().fg(RULE),
+                ),
+                Span::styled("/────┴────\\", Style::new().fg(DIM)),
+                Span::styled("───────", Style::new().fg(RULE)),
+                Span::styled("▼", Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD)),
+                Span::styled("─────────/───\\──────────", Style::new().fg(RULE)),
+            ]),
+            Line::from(Span::styled(
+                "              │                                  │",
+                Style::new().fg(DIM),
+            )),
+            Line::from(Span::styled(
+                "             ─┼─· · · · · · · · · · · · · · · · ─┼─",
+                Style::new().fg(DIM),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "                      ┌──────────┬──────────┬────",
+                    Style::new().fg(INK),
+                ),
+                Span::styled("┴", Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD)),
+                Span::styled("─────┬──────────┐", Style::new().fg(INK)),
+            ]),
+            Line::from(vec![
+                Span::styled("                 ==<  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█", Style::new().fg(CABIN_GLOW)),
+                Span::styled("   ", Style::new().fg(INK)),
+                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
+                Span::styled(" │", Style::new().fg(INK)),
+            ]),
+            Line::from(Span::styled(
+                " ═════════════════════╧══════════╧══════════╧══════════╧══════════╧═══════",
+                Style::new().fg(RULE),
+            )),
+            blank(),
+        ],
+        _ => vec![
+            Line::from(Span::styled(
+                "  ·             *            ·       │        *            ·",
+                Style::new().fg(DIM),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "                                   ──┼──  ",
+                    Style::new().fg(DIM),
+                ),
+                Span::styled("·  ·  ·", Style::new().fg(DIM)),
+            ]),
+            Line::from(vec![
+                Span::styled("            ▲                     ", Style::new().fg(RULE)),
+                Span::styled("/  │  \\", Style::new().fg(DIM)),
+                Span::styled("                    ▲", Style::new().fg(RULE)),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    " ─────────/───\\───/─\\───────────",
+                    Style::new().fg(RULE),
+                ),
+                Span::styled("/────┴────\\", Style::new().fg(DIM)),
+                Span::styled("────────────────/───\\──────────", Style::new().fg(RULE)),
+            ]),
+            Line::from(Span::styled(
+                "                    │                                  │",
+                Style::new().fg(DIM),
+            )),
+            Line::from(Span::styled(
+                "                   ─┼─· · · · · · · · · · · · · · · · ─┼─",
+                Style::new().fg(DIM),
+            )),
+            Line::from(Span::styled(
+                "                              ┌──────────┬──────────┬──────────┬──────────┐",
+                Style::new().fg(INK),
+            )),
+            Line::from(vec![
+                Span::styled("                         ==<  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
+                Span::styled("  │ ", Style::new().fg(INK)),
+                Span::styled("█", Style::new().fg(CABIN_GLOW)),
+                Span::styled("   ", Style::new().fg(INK)),
+                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
+                Span::styled(" │", Style::new().fg(INK)),
+            ]),
+            Line::from(Span::styled(
+                " ══════════════════════════════╧══════════╧══════════╧══════════╧══════════╧",
+                Style::new().fg(RULE),
+            )),
+            blank(),
+        ],
+    }
+}
+
+fn styled_load(line: &crate::load::LoadLine) -> Line<'static> {
+    let style = match line.tone {
+        LineTone::Prompt | LineTone::Selected => Style::new().fg(INK).add_modifier(Modifier::BOLD),
+        LineTone::Text => Style::new().fg(INK),
+        LineTone::Dim => Style::new().fg(DIM),
+    };
+    Line::from(Span::styled(line.text.clone(), style))
+}
+
+fn load_foot(foot: Foot, width: u16) -> Vec<Line<'static>> {
+    let keys = match foot {
+        Foot::Quit => one_key("q", "quit"),
+        Foot::Esc => one_key("esc", "quit"),
+        Foot::EnterQuit => Line::from(vec![
+            Span::styled("  ", Style::new().fg(DIM)),
+            Span::styled("enter", Style::new().fg(KEY)),
+            Span::styled("  continue     ", Style::new().fg(DIM)),
+            Span::styled("q", Style::new().fg(KEY)),
+            Span::styled("  quit", Style::new().fg(DIM)),
+        ]),
+    };
+    vec![
+        Line::from(Span::styled(rule(width), Style::new().fg(RULE))),
+        keys,
+    ]
+}
+
+fn one_key(key: &str, word: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("  ", Style::new().fg(DIM)),
+        Span::styled(key.to_string(), Style::new().fg(KEY)),
+        Span::styled(format!("  {word}"), Style::new().fg(DIM)),
+    ])
+}
+
 fn render_line(frame: &mut Frame, area: Rect, line: Line<'_>) {
     frame.render_widget(Paragraph::new(line), area);
 }
@@ -351,16 +728,21 @@ mod tests {
     use ratatui::Terminal;
     use std::time::Duration;
 
+    fn settings_draft() -> crate::settings::SettingsDraft {
+        crate::settings::SettingsDraft::from_saved(&crate::settings::Gather::default(), true)
+    }
+
     fn snap(history: Vec<MinuteLight>) -> Snapshot {
         Snapshot {
             at: Local.with_ymd_and_hms(2026, 10, 21, 14, 23, 40).unwrap(),
             line: Some("Pennsylvanian".into()),
+            on_amtrak: true,
             place: "Millerstown, PA".into(),
             position: Some((40.536, -77.150)),
             motion: None,
             tone: Tone::Clear,
             pace: "54 ms, no loss".into(),
-            page: "test page loaded in 0.22 s".into(),
+            page: "test page: 0.22 s".into(),
             path: "iPhone hotspot over Wi-Fi".into(),
             is_default: true,
             history,
@@ -468,7 +850,7 @@ mod tests {
         let backend = TestBackend::new(60, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| draw_settings(frame, &view))
+            .draw(|frame| draw_settings(frame, &view, &settings_draft()))
             .unwrap();
         let buf = terminal.backend().buffer().clone();
         let screen: String = (0..buf.area.height)
@@ -481,10 +863,194 @@ mod tests {
             .join("\n");
         assert!(screen.contains("Save this trip"));
         assert!(screen.contains("On"));
+        assert!(screen.contains("save"));
+        assert!(screen.contains("cancel"));
+        assert!(!screen.contains("quit"));
         assert!(screen.contains("Street address"));
         assert!(screen.contains("not saved"));
         assert!(screen.contains("Wi-Fi name"));
         assert!(screen.contains("IP address"));
         assert!(!screen.contains("sampler"));
+    }
+
+    #[test]
+    fn quit_and_settings_keys_are_blue_and_side_by_side() {
+        let backend = TestBackend::new(60, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, &snap(vec![]))).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found = None;
+        for y in 0..buf.area.height {
+            let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(quit_at) = row.find("quit") {
+                let q = quit_at - 3;
+                let s = row.find("settings").expect("settings") - 3;
+                found = Some((q, s, y));
+            }
+        }
+        let (q, s, y) = found.expect("quit key");
+        let blue = Some(Color::Rgb(64, 132, 186));
+        assert_eq!(buf[(q as u16, y)].symbol(), "q");
+        assert_eq!(buf[(s as u16, y)].symbol(), "s");
+        assert_eq!(buf[(q as u16, y)].style().fg, blue);
+        assert_eq!(buf[(s as u16, y)].style().fg, blue);
+        assert!(s > q);
+        assert!(s - q < 16, "s should sit next to q");
+    }
+
+    #[test]
+    fn settings_offers_save_and_cancel_instead_of_quit() {
+        let backend = TestBackend::new(60, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_settings(frame, &snap(vec![]), &settings_draft()))
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found = None;
+        for y in 0..buf.area.height {
+            let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(cancel_at) = row.find("cancel") {
+                let save_at = row.find("save").expect("save");
+                found = Some((save_at - 3, cancel_at - 3, y, row));
+            }
+        }
+        let (s, c, y, row) = found.expect("save and cancel");
+        let blue = Some(Color::Rgb(64, 132, 186));
+        assert!(!row.contains("quit"));
+        assert_eq!(buf[(s as u16, y)].symbol(), "s");
+        assert_eq!(buf[(c as u16, y)].symbol(), "c");
+        assert_eq!(buf[(s as u16, y)].style().fg, blue);
+        assert_eq!(buf[(c as u16, y)].style().fg, blue);
+        assert!(c > s);
+        assert!(c - s < 16, "c should sit next to s");
+    }
+
+    #[test]
+    fn off_the_train_the_title_drops_the_product_name() {
+        let mut view = snap(vec![]);
+        view.on_amtrak = false;
+        view.line = None;
+        let backend = TestBackend::new(70, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, &view)).unwrap();
+        let screen = screen_of(&terminal);
+        assert!(screen.contains("Network Monitor (Not on Amtrak)"));
+        assert!(!screen.contains("Amtrak Network Monitor"));
+        assert_eq!(
+            monitor_title(false, None),
+            "Network Monitor (Not on Amtrak)"
+        );
+        assert_eq!(
+            monitor_title(true, Some("Pennsylvanian")),
+            "Amtrak Pennsylvanian Network Monitor"
+        );
+        assert_eq!(monitor_title(true, None), "Amtrak Network Monitor");
+    }
+
+    #[test]
+    fn the_load_screen_shows_the_question_and_a_blue_quit_key() {
+        use crate::load::Wizard;
+        let view = Wizard::new().view(24, "About 40 kB an hour.");
+        let backend = TestBackend::new(70, 16);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw_load(frame, &view)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let screen = screen_text(&buf);
+        assert!(screen.contains("Are you riding Amtrak right now? y/N"));
+        let mut quit = None;
+        for y in 0..buf.area.height {
+            let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(at) = row.find("quit") {
+                quit = Some((at - 3, y));
+            }
+        }
+        let (q, y) = quit.expect("quit key");
+        assert_eq!(buf[(q as u16, y)].symbol(), "q");
+        assert_eq!(
+            buf[(q as u16, y)].style().fg,
+            Some(Color::Rgb(64, 132, 186))
+        );
+    }
+
+    #[test]
+    fn continue_without_a_line_stays_on_the_bottom_row() {
+        use crate::load::{Press, Wizard};
+        let mut wizard = Wizard::new();
+        wizard.push(Press::Char('y'));
+        let view = wizard.view(16, "About 40 kB an hour.");
+        let backend = TestBackend::new(70, 16);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw_load(frame, &view)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let rule_y = (0..buf.area.height)
+            .rev()
+            .find(|y| {
+                let row: String = (0..buf.area.width).map(|x| buf[(x, *y)].symbol()).collect();
+                row.contains('─')
+            })
+            .expect("rule");
+        let pinned: String = (0..buf.area.width)
+            .map(|x| buf[(x, rule_y - 1)].symbol())
+            .collect();
+        assert!(
+            pinned.contains("Continue without selecting a line"),
+            "{pinned}"
+        );
+    }
+
+    #[test]
+    fn the_store_question_wraps_the_reason_and_the_size() {
+        use crate::load::{Press, Wizard};
+        let mut wizard = Wizard::new();
+        wizard.push(Press::Char('y'));
+        for ch in "penn".chars() {
+            wizard.push(Press::Char(ch));
+        }
+        wizard.push(Press::Enter);
+        wizard.push(Press::Char('1'));
+        let view = wizard.view(24, "About 40 kB an hour.");
+        let backend = TestBackend::new(60, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw_load(frame, &view)).unwrap();
+        let screen = screen_text(terminal.backend().buffer());
+        let flat = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("local database"));
+        assert!(flat.contains("dead zone"));
+        assert!(flat.contains("personal connection"));
+        assert!(flat.contains("About 40 kB an hour."));
+        assert!(flat.contains("Nothing is uploaded."));
+        assert!(!flat.contains("Share this trip"));
+    }
+
+    #[test]
+    fn the_load_screen_shows_animated_train_when_tall_enough() {
+        use crate::load::Wizard;
+        let mut wizard = Wizard::new();
+        wizard.tick();
+        wizard.tick();
+        let view = wizard.view(24, "About 40 kB an hour.");
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw_load(frame, &view)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let screen = screen_text(&buf);
+        assert!(screen.contains("Are you riding Amtrak right now? y/N"));
+        assert!(screen.contains("==<"));
+        assert!(screen.contains("CLEAR"));
+    }
+
+    fn screen_of(terminal: &Terminal<TestBackend>) -> String {
+        screen_text(terminal.backend().buffer())
+    }
+
+    fn screen_text(buf: &ratatui::buffer::Buffer) -> String {
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }

@@ -31,6 +31,9 @@ impl Tone {
 pub struct Snapshot {
     pub at: DateTime<Local>,
     pub line: Option<String>,
+    /// False when the load screen was answered no. The title then drops the
+    /// product name and says this is not an Amtrak ride.
+    pub on_amtrak: bool,
     pub place: String,
     pub position: Option<(f64, f64)>,
     pub motion: Option<String>,
@@ -45,6 +48,9 @@ pub struct Snapshot {
     pub fix_age: Option<Duration>,
 }
 
+pub const WAITING_PLACE: &str = "waiting for a location";
+pub const NO_TOWN: &str = "position in hand, no town name";
+
 pub fn tone_of(row: &LinkRow, age: Duration) -> Tone {
     if age > Duration::from_secs(90) {
         return Tone::NoSample;
@@ -52,22 +58,51 @@ pub fn tone_of(row: &LinkRow, age: Duration) -> Tone {
     if row.ip.is_none() {
         return Tone::Down;
     }
+    if !row.ping_on && !row.http_on {
+        return Tone::NoSample;
+    }
     let loss = row.loss_pct.unwrap_or(100.0);
     let rtt = row.rtt_ms.unwrap_or(10_000.0);
+    let ping_clear = loss <= 5.0 && rtt < 250.0;
+    let ping_ok = loss < 40.0 && rtt < 800.0;
+    let ping_poor = loss < 80.0;
     let page_ok = row.http_code == Some(200);
-    if page_ok && loss <= 5.0 && rtt < 250.0 {
-        Tone::Clear
-    } else if page_ok && loss < 40.0 && rtt < 800.0 {
-        Tone::Uneven
-    } else if loss < 80.0 {
-        Tone::Poor
-    } else {
-        Tone::Down
+    match (row.ping_on, row.http_on) {
+        (true, true) => {
+            if page_ok && ping_clear {
+                Tone::Clear
+            } else if page_ok && ping_ok {
+                Tone::Uneven
+            } else if ping_poor {
+                Tone::Poor
+            } else {
+                Tone::Down
+            }
+        }
+        (true, false) => {
+            if ping_clear {
+                Tone::Clear
+            } else if ping_ok {
+                Tone::Uneven
+            } else if ping_poor {
+                Tone::Poor
+            } else {
+                Tone::Down
+            }
+        }
+        (false, true) if page_ok && row.http_s.unwrap_or(10.0) < 0.5 => Tone::Clear,
+        (false, true) if page_ok => Tone::Uneven,
+        (false, true) if row.http_code.is_some() => Tone::Poor,
+        (false, true) => Tone::Down,
+        (false, false) => Tone::NoSample,
     }
 }
 
 /// Round trip and loss, without the test-page timing.
 pub fn pace_line(row: &LinkRow) -> String {
+    if !row.ping_on {
+        return "ping off".to_string();
+    }
     if row.ip.is_none() {
         return "no address on this connection".to_string();
     }
@@ -85,13 +120,13 @@ pub fn pace_line(row: &LinkRow) -> String {
 
 /// How long a small test page took to load. Empty when there is nothing to say.
 pub fn page_line(row: &LinkRow) -> String {
-    if row.ip.is_none() {
+    if !row.http_on || row.ip.is_none() {
         return String::new();
     }
     match (row.http_code, row.http_s) {
-        (Some(200), Some(s)) => format!("test page loaded in {s:.2} s"),
-        (Some(code), _) => format!("test page came back as http {code}"),
-        (None, _) => "test page did not load".to_string(),
+        (Some(200), Some(s)) => format!("test page: {s:.2} s"),
+        (Some(code), _) => format!("test page: http {code}"),
+        (None, _) => "test page: did not load".to_string(),
     }
 }
 
@@ -158,8 +193,21 @@ fn is_street(part: &str) -> bool {
     }
     let lower = format!(" {part} ").to_ascii_lowercase();
     [
-        " street ", " st ", " avenue ", " ave ", " road ", " rd ", " boulevard ", " blvd ",
-        " drive ", " dr ", " lane ", " ln ", " pike ", " highway ", " hwy ",
+        " street ",
+        " st ",
+        " avenue ",
+        " ave ",
+        " road ",
+        " rd ",
+        " boulevard ",
+        " blvd ",
+        " drive ",
+        " dr ",
+        " lane ",
+        " ln ",
+        " pike ",
+        " highway ",
+        " hwy ",
     ]
     .iter()
     .any(|word| lower.contains(word))
@@ -305,6 +353,8 @@ mod tests {
             http_code: http,
             http_s: Some(0.09),
             is_default: true,
+            ping_on: true,
+            http_on: true,
         }
     }
 
@@ -312,6 +362,7 @@ mod tests {
     fn clear_is_a_fast_page_with_little_loss() {
         let row = row(Some("172.20.10.3"), Some(0.0), Some(50.0), Some(200));
         assert_eq!(tone_of(&row, Duration::from_secs(5)), Tone::Clear);
+        assert_eq!(page_line(&row), "test page: 0.09 s");
     }
 
     #[test]
@@ -333,7 +384,10 @@ mod tests {
     fn a_saved_place_keeps_the_town_and_drops_the_street() {
         assert_eq!(stored_place("150 Helen St, Lewistown, PA"), "Lewistown, PA");
         assert_eq!(stored_place("207 E 57th St, New York, NY"), "New York, NY");
-        assert_eq!(stored_place("Horseshoe Curve, Altoona, PA"), "Horseshoe Curve, PA");
+        assert_eq!(
+            stored_place("Horseshoe Curve, Altoona, PA"),
+            "Horseshoe Curve, PA"
+        );
         assert_eq!(stored_place("150 Helen St"), "");
         let (lat, lon) = stored_position(40.760052, -73.966937);
         assert_eq!(lat, 40.760);
