@@ -392,10 +392,10 @@ pub fn draw_load(frame: &mut Frame, view: &LoadView) {
     let body: Vec<Line> = view.lines.iter().map(styled_load).collect();
 
     let anim_lines = if let Some(tick) = view.anim_tick {
-        if area.height >= 16 && area.width >= 54 {
+        if area.height >= 16 && area.width >= TRAIN_MIN_WIDTH {
             Some(animation_frame(tick, width))
         } else if area.height >= 9 && area.width >= 30 {
-            Some(braille_bars_alone(tick, width, area.height))
+            Some(bars_frame(tick, width, area.height))
         } else {
             None
         }
@@ -428,286 +428,250 @@ pub fn draw_load(frame: &mut Frame, view: &LoadView) {
     render_lines(frame, rects[idx], foot);
 }
 
-const BRAILLE_BAR_GLYPHS: [&str; 8] = [" ", "⣀", "⣠", "⣤", "⣴", "⣶", "⣾", "⣿"];
+/// Eighths of a bar, bottom up. Index 0 is an empty cell.
+const BAR_GLYPHS: [&str; 8] = [" ", "⣀", "⣠", "⣤", "⣴", "⣶", "⣾", "⣿"];
 
-fn calculate_braille_heights(tick: usize, num_cols: usize, num_rows: usize) -> Vec<f64> {
-    let mut heights = Vec::with_capacity(num_cols);
-    for i in 0..num_cols {
-        let val = (tick as f64 * 0.38 + i as f64 * 0.45).sin() * 1.5
-            + (tick as f64 * 0.24 + i as f64 * 0.75).cos() * 1.2
-            + 2.0;
-        let h = ((val * (num_rows as f64 / 3.8)).max(0.0)).min(num_rows as f64);
-        heights.push(h);
-    }
-    heights
+/// One wheel truck, in four frames so the spokes turn.
+const TRUCKS: [&str; 4] = ["(⠒⣿⠒)⠤(⠒⣿⠒)", "(⠦⣿⠴)⠤(⠦⣿⠴)", "(⠯⣿⠽)⠤(⠯⣿⠽)", "(⠭⣿⠮)⠤(⠭⣿⠮)"];
+const TRUCK_W: usize = 11;
+
+/// Columns left of the train, columns of lit rail past the nose, and the
+/// locomotive's width. A train needs 54 columns: these, plus one 12-column
+/// coach and its coupler.
+const LEFT: usize = 2;
+const AHEAD: usize = 4;
+const LOCO_W: usize = 34;
+pub const TRAIN_MIN_WIDTH: u16 = 54;
+
+/// Bar heights for this tick, in rows. Two slow waves out of phase, so the
+/// band rolls instead of pulsing.
+fn bar_heights(tick: usize, bars: usize, rows: usize) -> Vec<f64> {
+    let t = tick as f64;
+    (0..bars)
+        .map(|i| {
+            let x = i as f64;
+            let wave = (t * 0.38 + x * 0.45).sin() * 1.5 + (t * 0.24 + x * 0.75).cos() * 1.2 + 2.0;
+            (wave * rows as f64 / 3.8).clamp(0.0, rows as f64)
+        })
+        .collect()
 }
 
-pub fn braille_bars_alone(tick: usize, width: u16, height: u16) -> Vec<Line<'static>> {
-    let target_rows = ((height as usize).saturating_sub(7)).clamp(2, 5);
-    let num_cols = ((width as usize).saturating_sub(6) / 2).clamp(8, 36);
-    let heights = calculate_braille_heights(tick, num_cols, target_rows);
-    let pad = " ".repeat(((width as usize).saturating_sub(num_cols * 2)) / 2);
-
-    let mut lines = Vec::with_capacity(target_rows);
-    for r in 0..target_rows {
-        let target = (target_rows - 1) - r;
-        let mut spans = vec![Span::raw(pad.clone())];
-        for &h in &heights {
-            let color = if r == 0 {
-                CLEAR_GREEN
-            } else if r <= target_rows / 2 {
-                CYAN
-            } else {
-                KEY
-            };
-            if h >= (target + 1) as f64 {
-                spans.push(Span::styled("⣿ ", Style::new().fg(color)));
-            } else if h > target as f64 {
-                let frac = (((h - target as f64) * 8.0) as usize).clamp(1, 7);
-                spans.push(Span::styled(
-                    format!("{} ", BRAILLE_BAR_GLYPHS[frac]),
-                    Style::new().fg(color),
-                ));
-            } else {
-                spans.push(Span::raw("  "));
-            }
-        }
-        lines.push(Line::from(spans));
-    }
-    lines
-}
-
-fn render_full_bleed_waterfall(
-    tick: usize,
-    width: u16,
-    num_rows: usize,
-    left_margin: usize,
+/// A band of bars, top row first. Each bar is one glyph and one space.
+/// `color` is asked for each row, top row 0.
+fn bar_rows(
+    heights: &[f64],
+    rows: usize,
+    left: usize,
+    color: impl Fn(usize) -> Color,
 ) -> Vec<Line<'static>> {
-    let usable_cols = ((width as usize).saturating_sub(left_margin + 2)).max(10);
-    let num_bars = usable_cols / 2;
-    let heights = calculate_braille_heights(tick, num_bars, num_rows);
-    let sp = " ".repeat(left_margin);
-
-    let mut lines = Vec::with_capacity(num_rows);
-    for r in 0..num_rows {
-        let target = (num_rows - 1) - r;
-        let mut spans = vec![Span::raw(sp.clone())];
-        for &h in &heights {
-            let color = if r == 0 {
-                CLEAR_GREEN
-            } else if r == 1 {
-                CYAN
-            } else {
-                KEY
-            };
-            if h >= (target + 1) as f64 {
-                spans.push(Span::styled("⣿ ", Style::new().fg(color)));
-            } else if h > target as f64 {
-                let frac = (((h - target as f64) * 8.0) as usize).clamp(1, 7);
-                spans.push(Span::styled(
-                    format!("{} ", BRAILLE_BAR_GLYPHS[frac]),
-                    Style::new().fg(color),
-                ));
-            } else {
-                spans.push(Span::raw("  "));
+    (0..rows)
+        .map(|row| {
+            let floor = (rows - 1 - row) as f64;
+            let style = Style::new().fg(color(row));
+            let mut spans = vec![Span::raw(" ".repeat(left))];
+            for &h in heights {
+                let cell = if h >= floor + 1.0 {
+                    "⣿ ".to_string()
+                } else if h > floor {
+                    let eighths = (((h - floor) * 8.0) as usize).clamp(1, 7);
+                    format!("{} ", BAR_GLYPHS[eighths])
+                } else {
+                    "  ".to_string()
+                };
+                spans.push(Span::styled(cell, style));
             }
-        }
-        lines.push(Line::from(spans));
-    }
-    lines
+            Line::from(spans)
+        })
+        .collect()
 }
 
-pub fn animation_frame(tick: usize, width: u16) -> Vec<Line<'static>> {
-    let cols = (width as usize).max(54);
-    let left_margin = 2;
-    let right_margin = 4;
-    let loco_w = 34;
-    let coach_w = cols.saturating_sub(left_margin + right_margin + loco_w);
-    let sp = " ".repeat(left_margin);
-
-    let eq_rows = 3;
-    let mut lines = render_full_bleed_waterfall(tick, width, eq_rows, left_margin);
-
-    let trucks = [
-        "(⠒⣿⠒)⠤(⠒⣿⠒)",
-        "(⠦⣿⠴)⠤(⠦⣿⠴)",
-        "(⠯⣿⠽)⠤(⠯⣿⠽)",
-        "(⠭⣿⠮)⠤(⠭⣿⠮)",
-    ];
-    let truck = trucks[tick % 4];
-
-    // Determine coach partitioning
-    let counts = if coach_w < 30 {
-        vec![coach_w.saturating_sub(2)]
-    } else if coach_w < 52 {
-        let c1 = (coach_w.saturating_sub(4)) / 2;
-        let c2 = coach_w.saturating_sub(4) - c1;
-        vec![c1, c2]
-    } else {
-        let rem = coach_w.saturating_sub(6);
-        let c1 = rem / 3;
-        let c2 = rem / 3;
-        let c3 = rem - c1 - c2;
-        vec![c1, c2, c3]
-    };
-
-    let mut roof_spans = vec![Span::raw(sp.clone())];
-    let mut win_spans = vec![Span::raw(sp.clone())];
-    let mut body_spans = vec![Span::raw(sp.clone())];
-    let mut sill_spans = vec![Span::raw(sp.clone())];
-    let mut wh_spans = vec![Span::raw(sp.clone())];
-
-    for &c_len in &counts {
-        if c_len < 8 {
-            continue;
+/// The signal band on its own, centered, for a screen too small for the train.
+pub fn bars_frame(tick: usize, width: u16, height: u16) -> Vec<Line<'static>> {
+    let rows = (height as usize).saturating_sub(7).clamp(2, 5);
+    let bars = ((width as usize).saturating_sub(6) / 2).clamp(8, 36);
+    let left = (width as usize).saturating_sub(bars * 2) / 2;
+    let heights = bar_heights(tick, bars, rows);
+    bar_rows(&heights, rows, left, |row| {
+        if row == 0 {
+            CLEAR_GREEN
+        } else if row <= rows / 2 {
+            CYAN
+        } else {
+            KEY
         }
-        // Roof: curved aerodynamic cap
-        let r_mid = c_len.saturating_sub(4);
-        roof_spans.push(Span::styled(
-            format!("⢀⣠{}⣄⡀", "⠤".repeat(r_mid)),
-            Style::new().fg(INK),
-        ));
-        roof_spans.push(Span::raw("  "));
+    })
+}
 
-        // Windows: clean rectangular illuminated glass without human silhouettes (completely empty window panes)
-        let num_win = (c_len.saturating_sub(4) / 4).max(1);
-        let mut inner_win = String::new();
-        for w in 0..num_win {
-            if w > 0 {
-                inner_win.push(' ');
-            }
-            inner_win.push_str("⢺ ⡗");
+/// Split the room left of the locomotive into coaches of 12 to 28 columns,
+/// each followed by a two-column coupler.
+fn coach_lengths(room: usize) -> Vec<usize> {
+    let count = room.div_ceil(30).max(1);
+    let inner = room.saturating_sub(2 * count);
+    (0..count)
+        .map(|i| inner / count + usize::from(i < inner % count))
+        .collect()
+}
+
+/// Split `slack` columns around something centered, the odd column on the right.
+fn centered(slack: usize) -> (usize, usize) {
+    (slack / 2, slack - slack / 2)
+}
+
+/// A ground row that scrolls left one column a tick, so the train reads as
+/// moving right. `pattern` repeats for the whole length.
+fn ground_row(pattern: &str, tick: usize, len: usize, color: Color) -> Line<'static> {
+    let period = pattern.chars().count();
+    let text: String = pattern
+        .chars()
+        .cycle()
+        .skip(tick % period)
+        .take(len)
+        .collect();
+    Line::from(vec![
+        Span::raw(" ".repeat(LEFT)),
+        Span::styled(text, Style::new().fg(color)),
+    ])
+}
+
+/// The five rows of the train, built left to right.
+struct Train {
+    roof: Vec<Span<'static>>,
+    windows: Vec<Span<'static>>,
+    body: Vec<Span<'static>>,
+    sill: Vec<Span<'static>>,
+    wheels: Vec<Span<'static>>,
+}
+
+impl Train {
+    fn new() -> Self {
+        let margin = || vec![Span::raw(" ".repeat(LEFT))];
+        Train {
+            roof: margin(),
+            windows: margin(),
+            body: margin(),
+            sill: margin(),
+            wheels: margin(),
         }
-        let win_char_len = num_win * 3 + (num_win - 1);
-        let pad_win = c_len.saturating_sub(2 + win_char_len);
-        let left_pad = pad_win / 2;
-        let right_pad = pad_win - left_pad;
+    }
 
-        win_spans.push(Span::styled("⢸", Style::new().fg(INK)));
-        if left_pad > 0 {
-            win_spans.push(Span::raw(" ".repeat(left_pad)));
-        }
-        win_spans.push(Span::styled(inner_win, Style::new().fg(CABIN_GLOW)));
-        if right_pad > 0 {
-            win_spans.push(Span::raw(" ".repeat(right_pad)));
-        }
-        win_spans.push(Span::styled("⢸", Style::new().fg(INK)));
-        win_spans.push(Span::styled("⠶⠶", Style::new().fg(RULE)));
+    /// A coach `len` columns wide (at least 12), then its coupler.
+    fn coach(&mut self, len: usize, truck: &'static str) {
+        let ink = Style::new().fg(INK);
+        let rule = Style::new().fg(RULE);
 
-        // Car body
-        let b_mid = c_len.saturating_sub(2);
-        body_spans.push(Span::styled(
-            format!("⢸{}⡇", "⣿".repeat(b_mid)),
-            Style::new().fg(INK),
-        ));
-        body_spans.push(Span::raw("  "));
+        self.roof
+            .push(Span::styled(format!("⢀⣠{}⣄⡀", "⠤".repeat(len - 4)), ink));
+        self.roof.push(Span::raw("  "));
 
-        // Underfloor equipment & sill
-        let eq_str = if c_len >= 16 {
+        let panes = ((len - 4) / 4).max(1);
+        let glass = vec!["⢺ ⡗"; panes].join(" ");
+        let (left, right) = centered(len - 2 - (panes * 4 - 1));
+        self.windows.push(Span::styled("⢸", ink));
+        self.windows.push(Span::raw(" ".repeat(left)));
+        self.windows
+            .push(Span::styled(glass, Style::new().fg(CABIN_GLOW)));
+        self.windows.push(Span::raw(" ".repeat(right)));
+        self.windows.push(Span::styled("⢸", ink));
+        self.windows.push(Span::styled("⠶⠶", rule));
+
+        self.body
+            .push(Span::styled(format!("⢸{}⡇", "⣿".repeat(len - 2)), ink));
+        self.body.push(Span::raw("  "));
+
+        let gear = if len >= 16 {
             "⠛⠛⠛⣾⣿⡷⠛⠛"
         } else {
             "⣾⣿⡷"
         };
-        let pad_s = c_len.saturating_sub(2 + eq_str.chars().count());
-        let left_s = pad_s / 2;
-        let right_s = pad_s - left_s;
-        sill_spans.push(Span::styled(format!("⠘{}", "⠛".repeat(left_s)), Style::new().fg(RULE)));
-        sill_spans.push(Span::styled(eq_str, Style::new().fg(INK)));
-        sill_spans.push(Span::styled(format!("{}⠃", "⠛".repeat(right_s)), Style::new().fg(RULE)));
-        sill_spans.push(Span::raw("  "));
+        let (left, right) = centered(len - 2 - gear.chars().count());
+        self.sill
+            .push(Span::styled(format!("⠘{}", "⠛".repeat(left)), rule));
+        self.sill.push(Span::styled(gear, ink));
+        self.sill
+            .push(Span::styled(format!("{}⠃", "⠛".repeat(right)), rule));
+        self.sill.push(Span::raw("  "));
 
-        // Centered wheel truck
-        if c_len >= 13 {
-            let wh_pad = c_len - 11;
-            let w_left = wh_pad / 2;
-            let w_right = wh_pad - w_left;
-            wh_spans.push(Span::raw(" ".repeat(w_left)));
-            wh_spans.push(Span::styled(truck, Style::new().fg(KEY)));
-            wh_spans.push(Span::raw(" ".repeat(w_right)));
-        } else {
-            wh_spans.push(Span::raw(" ".repeat(c_len)));
-        }
-        wh_spans.push(Span::raw("  "));
+        let (left, right) = centered(len - TRUCK_W);
+        self.wheels.push(Span::raw(" ".repeat(left)));
+        self.wheels.push(Span::styled(truck, Style::new().fg(DIM)));
+        self.wheels.push(Span::raw(" ".repeat(right + 2)));
     }
 
-    // Version 4: Retro Bull-Nose Streamliner Locomotive (loco_w = 34)
-    // Curved aerodynamic prow with sealed beam round headlight and empty cab glass
-    roof_spans.push(Span::styled(
-        "⢀⣠⠤⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠤⣄",
-        Style::new().fg(INK),
-    ));
-    roof_spans.push(Span::raw(" ".repeat(loco_w - 24)));
+    /// The locomotive, 34 columns, facing right: a long body, the cab,
+    /// a rounded nose with the headlight, and a plow.
+    fn locomotive(&mut self, truck: &'static str) {
+        let ink = Style::new().fg(INK);
+        let rule = Style::new().fg(RULE);
+        let lamp = Style::new().fg(WHITE).add_modifier(Modifier::BOLD);
 
-    win_spans.push(Span::styled(
-        "⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-        Style::new().fg(INK),
-    ));
-    win_spans.push(Span::styled("⢹ ⡇ ⢹ ⡇ ", Style::new().fg(KEY)));
-    win_spans.push(Span::styled("⠙⢦", Style::new().fg(INK)));
-    win_spans.push(Span::raw(" ".repeat(loco_w - 29)));
+        self.roof
+            .push(Span::styled("⢀⣠⠤⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠤⣄", ink));
 
-    body_spans.push(Span::styled(
-        "⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-        Style::new().fg(INK),
-    ));
-    body_spans.push(Span::styled("(●)", Style::new().fg(WHITE).add_modifier(Modifier::BOLD)));
-    body_spans.push(Span::styled(" ⠸⣆", Style::new().fg(INK)));
-    body_spans.push(Span::raw(" ".repeat(loco_w - 30)));
+        self.windows.push(Span::styled("⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿", ink));
+        self.windows
+            .push(Span::styled("⢹ ⡇ ⢹ ⡇ ", Style::new().fg(KEY)));
+        self.windows.push(Span::styled("⠙⢦", ink));
 
-    sill_spans.push(Span::styled("⠘⠛⠛⠛⠛⠛⠛⠛⠛", Style::new().fg(RULE)));
-    sill_spans.push(Span::styled("⣾⣿⣿⡷", Style::new().fg(INK)));
-    sill_spans.push(Span::styled(
-        "⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠲⢤⣀",
-        Style::new().fg(RULE),
-    ));
+        self.body
+            .push(Span::styled("⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿", ink));
+        self.body.push(Span::styled("(●)", lamp));
+        self.body.push(Span::styled(" ⠸⣆", ink));
 
-    wh_spans.push(Span::raw(" "));
-    wh_spans.push(Span::styled(truck, Style::new().fg(CYAN)));
-    wh_spans.push(Span::raw("  "));
-    wh_spans.push(Span::styled(truck, Style::new().fg(CYAN)));
-    wh_spans.push(Span::raw("   "));
+        self.sill.push(Span::styled("⠘⠛⠛⠛⠛⠛⠛⠛⠛", rule));
+        self.sill.push(Span::styled("⣾⣿⣿⡷", ink));
+        self.sill.push(Span::styled("⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠲⢤⣀", rule));
 
-    lines.push(Line::from(roof_spans));
-    lines.push(Line::from(win_spans));
-    lines.push(Line::from(body_spans));
-    lines.push(Line::from(sill_spans));
-    lines.push(Line::from(wh_spans));
+        self.wheels.push(Span::raw(" "));
+        self.wheels.push(Span::styled(truck, Style::new().fg(DIM)));
+        self.wheels.push(Span::raw("  "));
+        self.wheels.push(Span::styled(truck, Style::new().fg(DIM)));
+    }
 
-    // Running rails, ties, ballast
-    let train_total_w = coach_w + loco_w;
+    fn lines(self) -> [Line<'static>; 5] {
+        [
+            Line::from(self.roof),
+            Line::from(self.windows),
+            Line::from(self.body),
+            Line::from(self.sill),
+            Line::from(self.wheels),
+        ]
+    }
+}
+
+/// The load screen's train: three rows of signal band, five of train, and
+/// three of rails and ground. The rail runs to the last column, lit past
+/// the nose. No line is wider than `width` when `width` is at least
+/// `TRAIN_MIN_WIDTH`; `draw_load` keeps narrower screens on `bars_frame`.
+pub fn animation_frame(tick: usize, width: u16) -> Vec<Line<'static>> {
+    let cols = (width as usize).max(TRAIN_MIN_WIDTH as usize);
+    let room = cols - LEFT - AHEAD - LOCO_W;
+    let ground = cols - LEFT;
+
+    let heights = bar_heights(tick, (ground - 2) / 2, 3);
+    let mut lines = bar_rows(&heights, 3, LEFT, |row| match row {
+        0 => CLEAR_GREEN,
+        1 => CYAN,
+        _ => KEY,
+    });
+
+    let truck = TRUCKS[tick % TRUCKS.len()];
+    let mut train = Train::new();
+    for len in coach_lengths(room) {
+        train.coach(len, truck);
+    }
+    train.locomotive(truck);
+    lines.extend(train.lines());
+
     lines.push(Line::from(vec![
-        Span::raw(sp.clone()),
-        Span::styled("⠶".repeat(train_total_w), Style::new().fg(RULE)),
+        Span::raw(" ".repeat(LEFT)),
+        Span::styled("⠶".repeat(ground - AHEAD), Style::new().fg(RULE)),
         Span::styled(
-            "⠶".repeat(right_margin),
+            "⠶".repeat(AHEAD),
             Style::new().fg(WHITE).add_modifier(Modifier::BOLD),
         ),
     ]));
-
-    let ties_pattern = " ⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚ ⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚";
-    let t_offset = (tick * 2) % 3;
-    let ties_slice: String = ties_pattern
-        .chars()
-        .skip(t_offset)
-        .take(train_total_w + right_margin)
-        .collect();
-    lines.push(Line::from(vec![
-        Span::raw(sp.clone()),
-        Span::styled(ties_slice, Style::new().fg(RULE)),
-    ]));
-
-    let ballast_pattern = " ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄";
-    let g_offset = (tick * 3) % 6;
-    let ballast_slice: String = ballast_pattern
-        .chars()
-        .skip(g_offset)
-        .take(train_total_w + right_margin)
-        .collect();
-    lines.push(Line::from(vec![
-        Span::raw(sp),
-        Span::styled(ballast_slice, Style::new().fg(DIM)),
-    ]));
-
+    lines.push(ground_row("⠓⠒⠚", tick, ground, RULE));
+    lines.push(ground_row(" ⠂ ⠂ ⠄", tick, ground, DIM));
     lines
 }
 
@@ -1054,6 +1018,61 @@ mod tests {
         assert!(flat.contains("About 40 kB an hour."));
         assert!(flat.contains("Nothing is uploaded."));
         assert!(!flat.contains("Keep an anonymous copy"));
+    }
+
+    #[test]
+    fn the_train_fits_every_width_and_the_rail_reaches_the_edge() {
+        for width in TRAIN_MIN_WIDTH..=260 {
+            for tick in 0..12 {
+                let lines = animation_frame(tick, width);
+                assert_eq!(lines.len(), 11, "w={width}");
+                for (i, line) in lines.iter().enumerate() {
+                    assert!(
+                        line.width() <= width as usize,
+                        "line {i} is {} wide at w={width} tick={tick}",
+                        line.width()
+                    );
+                }
+                assert_eq!(lines[8].width(), width as usize, "rail at w={width}");
+                assert_eq!(lines[9].width(), width as usize, "ties at w={width}");
+                assert_eq!(lines[10].width(), width as usize, "ballast at w={width}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_coach_is_wide_enough_for_its_wheels() {
+        for room in 14..=300 {
+            let lengths = coach_lengths(room);
+            assert_eq!(lengths.iter().sum::<usize>() + 2 * lengths.len(), room);
+            for len in lengths {
+                assert!((12..=28).contains(&len), "room={room} len={len}");
+            }
+        }
+        assert_eq!(coach_lengths(14), vec![12]);
+        assert_eq!(coach_lengths(31), vec![14, 13]);
+    }
+
+    #[test]
+    fn the_ground_scrolls_one_column_a_tick() {
+        let a = ground_row("⠓⠒⠚", 0, 9, RULE).to_string();
+        let b = ground_row("⠓⠒⠚", 1, 9, RULE).to_string();
+        assert_eq!(a.trim_start(), "⠓⠒⠚⠓⠒⠚⠓⠒⠚");
+        assert_eq!(b.trim_start(), "⠒⠚⠓⠒⠚⠓⠒⠚⠓");
+        assert_eq!(ground_row("⠓⠒⠚", 3, 9, RULE).to_string(), a);
+    }
+
+    #[test]
+    fn the_bars_alone_fit_every_small_screen() {
+        for width in 30..=120u16 {
+            for height in 9..=15u16 {
+                let lines = bars_frame(0, width, height);
+                assert_eq!(lines.len(), (height as usize - 7).clamp(2, 5));
+                for line in &lines {
+                    assert!(line.width() <= width as usize, "w={width} h={height}");
+                }
+            }
+        }
     }
 
     #[test]
