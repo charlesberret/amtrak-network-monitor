@@ -15,7 +15,8 @@ const RULE: Color = Color::Rgb(68, 66, 62);
 const KEY: Color = Color::Rgb(64, 132, 186);
 const CABIN_GLOW: Color = Color::Rgb(245, 215, 130);
 const CLEAR_GREEN: Color = Color::Rgb(40, 146, 82);
-const UNEVEN_AMBER: Color = Color::Rgb(184, 138, 40);
+const CYAN: Color = Color::Rgb(80, 200, 220);
+const WHITE: Color = Color::Rgb(255, 255, 255);
 
 pub fn draw(frame: &mut Frame, snap: &Snapshot) {
     let area = frame.area();
@@ -391,8 +392,10 @@ pub fn draw_load(frame: &mut Frame, view: &LoadView) {
     let body: Vec<Line> = view.lines.iter().map(styled_load).collect();
 
     let anim_lines = if let Some(tick) = view.anim_tick {
-        if area.height >= 18 && area.width >= 50 {
+        if area.height >= 16 && area.width >= 54 {
             Some(animation_frame(tick, width))
+        } else if area.height >= 9 && area.width >= 30 {
+            Some(braille_bars_alone(tick, width, area.height))
         } else {
             None
         }
@@ -425,255 +428,287 @@ pub fn draw_load(frame: &mut Frame, view: &LoadView) {
     render_lines(frame, rects[idx], foot);
 }
 
-pub fn animation_frame(tick: usize, _width: u16) -> Vec<Line<'static>> {
-    let frame = tick % 4;
-    match frame {
-        0 => vec![
-            Line::from(Span::styled(
-                "  ·             *            ·       │        *            ·",
-                Style::new().fg(DIM),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    "                                   ──┼──  ",
-                    Style::new().fg(DIM),
-                ),
-                Span::styled(
-                    "· . ( ) . ·",
-                    Style::new().fg(UNEVEN_AMBER).add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("            ▲                     ", Style::new().fg(RULE)),
-                Span::styled("/  │  \\", Style::new().fg(DIM)),
-                Span::styled("                    ▲", Style::new().fg(RULE)),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    " ─────────/───\\───/─\\───────────",
-                    Style::new().fg(RULE),
-                ),
-                Span::styled("/────┴────\\", Style::new().fg(DIM)),
-                Span::styled("────────────────/───\\──────────", Style::new().fg(RULE)),
-            ]),
-            Line::from(Span::styled(
-                "     │                                      │",
-                Style::new().fg(DIM),
-            )),
-            Line::from(Span::styled(
-                "    ─┼─· · · · · · · · · · · · · · · · · · ─┼─",
-                Style::new().fg(DIM),
-            )),
-            Line::from(Span::styled(
-                "          ┌──────────┬──────────┬──────────┬──────────┐",
-                Style::new().fg(INK),
-            )),
-            Line::from(vec![
-                Span::styled("     ==<  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█", Style::new().fg(CABIN_GLOW)),
-                Span::styled("   ", Style::new().fg(INK)),
-                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
-                Span::styled(" │", Style::new().fg(INK)),
-            ]),
-            Line::from(Span::styled(
-                " ═════════╧══════════╧══════════╧══════════╧══════════╧═══════════════════",
-                Style::new().fg(RULE),
-            )),
-            blank(),
-        ],
-        1 => vec![
-            Line::from(Span::styled(
-                "  ·             *            ·       │        *            ·",
-                Style::new().fg(DIM),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    "                                   ──┼──  ",
-                    Style::new().fg(DIM),
-                ),
-                Span::styled(
-                    "· (( ✦ )) ·",
-                    Style::new().fg(KEY).add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("            ▲                     ", Style::new().fg(RULE)),
-                Span::styled("/  │  \\", Style::new().fg(DIM)),
-                Span::styled("     ", Style::new().fg(DIM)),
-                Span::styled("\\", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
-                Span::styled("              ▲", Style::new().fg(RULE)),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    " ─────────/───\\───/─\\───────────",
-                    Style::new().fg(RULE),
-                ),
-                Span::styled("/────┴────\\", Style::new().fg(DIM)),
-                Span::styled("─────", Style::new().fg(RULE)),
-                Span::styled("\\", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
-                Span::styled("──────────/───\\──────────", Style::new().fg(RULE)),
-            ]),
-            Line::from(Span::styled(
-                "        │                                      │",
-                Style::new().fg(DIM),
-            )),
-            Line::from(Span::styled(
-                "       ─┼─· · · · · · · · · · · · · · · · · · ─┼─",
-                Style::new().fg(DIM),
-            )),
-            Line::from(Span::styled(
-                "                ┌──────────┬──────────┬──────────┬──────────┐",
-                Style::new().fg(INK),
-            )),
-            Line::from(vec![
-                Span::styled("           ==<  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█", Style::new().fg(CABIN_GLOW)),
-                Span::styled("   ", Style::new().fg(INK)),
-                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
-                Span::styled(" │", Style::new().fg(INK)),
-            ]),
-            Line::from(Span::styled(
-                " ═══════════════╧══════════╧══════════╧══════════╧══════════╧═════════════",
-                Style::new().fg(RULE),
-            )),
-            blank(),
-        ],
-        2 => vec![
-            Line::from(Span::styled(
-                "  ·             *            ·       │        *            ·",
-                Style::new().fg(DIM),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    "                                   ──┼──  ",
-                    Style::new().fg(DIM),
-                ),
-                Span::styled(
-                    "((([CLEAR])))",
-                    Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("            ▲                     ", Style::new().fg(RULE)),
-                Span::styled("/  │  \\", Style::new().fg(DIM)),
-                Span::styled("         ", Style::new().fg(DIM)),
-                Span::styled("│", Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD)),
-                Span::styled("          ▲", Style::new().fg(RULE)),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    " ─────────/───\\───/─\\───────────",
-                    Style::new().fg(RULE),
-                ),
-                Span::styled("/────┴────\\", Style::new().fg(DIM)),
-                Span::styled("───────", Style::new().fg(RULE)),
-                Span::styled("▼", Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD)),
-                Span::styled("─────────/───\\──────────", Style::new().fg(RULE)),
-            ]),
-            Line::from(Span::styled(
-                "              │                                  │",
-                Style::new().fg(DIM),
-            )),
-            Line::from(Span::styled(
-                "             ─┼─· · · · · · · · · · · · · · · · ─┼─",
-                Style::new().fg(DIM),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    "                      ┌──────────┬──────────┬────",
-                    Style::new().fg(INK),
-                ),
-                Span::styled("┴", Style::new().fg(CLEAR_GREEN).add_modifier(Modifier::BOLD)),
-                Span::styled("─────┬──────────┐", Style::new().fg(INK)),
-            ]),
-            Line::from(vec![
-                Span::styled("                 ==<  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█", Style::new().fg(CABIN_GLOW)),
-                Span::styled("   ", Style::new().fg(INK)),
-                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
-                Span::styled(" │", Style::new().fg(INK)),
-            ]),
-            Line::from(Span::styled(
-                " ═════════════════════╧══════════╧══════════╧══════════╧══════════╧═══════",
-                Style::new().fg(RULE),
-            )),
-            blank(),
-        ],
-        _ => vec![
-            Line::from(Span::styled(
-                "  ·             *            ·       │        *            ·",
-                Style::new().fg(DIM),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    "                                   ──┼──  ",
-                    Style::new().fg(DIM),
-                ),
-                Span::styled("·  ·  ·", Style::new().fg(DIM)),
-            ]),
-            Line::from(vec![
-                Span::styled("            ▲                     ", Style::new().fg(RULE)),
-                Span::styled("/  │  \\", Style::new().fg(DIM)),
-                Span::styled("                    ▲", Style::new().fg(RULE)),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    " ─────────/───\\───/─\\───────────",
-                    Style::new().fg(RULE),
-                ),
-                Span::styled("/────┴────\\", Style::new().fg(DIM)),
-                Span::styled("────────────────/───\\──────────", Style::new().fg(RULE)),
-            ]),
-            Line::from(Span::styled(
-                "                    │                                  │",
-                Style::new().fg(DIM),
-            )),
-            Line::from(Span::styled(
-                "                   ─┼─· · · · · · · · · · · · · · · · ─┼─",
-                Style::new().fg(DIM),
-            )),
-            Line::from(Span::styled(
-                "                              ┌──────────┬──────────┬──────────┬──────────┐",
-                Style::new().fg(INK),
-            )),
-            Line::from(vec![
-                Span::styled("                         ==<  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█  █  █", Style::new().fg(CABIN_GLOW)),
-                Span::styled("  │ ", Style::new().fg(INK)),
-                Span::styled("█", Style::new().fg(CABIN_GLOW)),
-                Span::styled("   ", Style::new().fg(INK)),
-                Span::styled("[==]", Style::new().fg(KEY).add_modifier(Modifier::BOLD)),
-                Span::styled(" │", Style::new().fg(INK)),
-            ]),
-            Line::from(Span::styled(
-                " ══════════════════════════════╧══════════╧══════════╧══════════╧══════════╧",
-                Style::new().fg(RULE),
-            )),
-            blank(),
-        ],
+const BRAILLE_BAR_GLYPHS: [&str; 8] = [" ", "⣀", "⣠", "⣤", "⣴", "⣶", "⣾", "⣿"];
+
+fn calculate_braille_heights(tick: usize, num_cols: usize, num_rows: usize) -> Vec<f64> {
+    let mut heights = Vec::with_capacity(num_cols);
+    for i in 0..num_cols {
+        let val = (tick as f64 * 0.38 + i as f64 * 0.45).sin() * 1.5
+            + (tick as f64 * 0.24 + i as f64 * 0.75).cos() * 1.2
+            + 2.0;
+        let h = ((val * (num_rows as f64 / 3.8)).max(0.0)).min(num_rows as f64);
+        heights.push(h);
     }
+    heights
+}
+
+pub fn braille_bars_alone(tick: usize, width: u16, height: u16) -> Vec<Line<'static>> {
+    let target_rows = ((height as usize).saturating_sub(7)).clamp(2, 5);
+    let num_cols = ((width as usize).saturating_sub(6) / 2).clamp(8, 36);
+    let heights = calculate_braille_heights(tick, num_cols, target_rows);
+    let pad = " ".repeat(((width as usize).saturating_sub(num_cols * 2)) / 2);
+
+    let mut lines = Vec::with_capacity(target_rows);
+    for r in 0..target_rows {
+        let target = (target_rows - 1) - r;
+        let mut spans = vec![Span::raw(pad.clone())];
+        for &h in &heights {
+            let color = if r == 0 {
+                CLEAR_GREEN
+            } else if r <= target_rows / 2 {
+                CYAN
+            } else {
+                KEY
+            };
+            if h >= (target + 1) as f64 {
+                spans.push(Span::styled("⣿ ", Style::new().fg(color)));
+            } else if h > target as f64 {
+                let frac = (((h - target as f64) * 8.0) as usize).clamp(1, 7);
+                spans.push(Span::styled(
+                    format!("{} ", BRAILLE_BAR_GLYPHS[frac]),
+                    Style::new().fg(color),
+                ));
+            } else {
+                spans.push(Span::raw("  "));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    lines
+}
+
+fn render_full_bleed_waterfall(
+    tick: usize,
+    width: u16,
+    num_rows: usize,
+    left_margin: usize,
+) -> Vec<Line<'static>> {
+    let usable_cols = ((width as usize).saturating_sub(left_margin + 2)).max(10);
+    let num_bars = usable_cols / 2;
+    let heights = calculate_braille_heights(tick, num_bars, num_rows);
+    let sp = " ".repeat(left_margin);
+
+    let mut lines = Vec::with_capacity(num_rows);
+    for r in 0..num_rows {
+        let target = (num_rows - 1) - r;
+        let mut spans = vec![Span::raw(sp.clone())];
+        for &h in &heights {
+            let color = if r == 0 {
+                CLEAR_GREEN
+            } else if r == 1 {
+                CYAN
+            } else {
+                KEY
+            };
+            if h >= (target + 1) as f64 {
+                spans.push(Span::styled("⣿ ", Style::new().fg(color)));
+            } else if h > target as f64 {
+                let frac = (((h - target as f64) * 8.0) as usize).clamp(1, 7);
+                spans.push(Span::styled(
+                    format!("{} ", BRAILLE_BAR_GLYPHS[frac]),
+                    Style::new().fg(color),
+                ));
+            } else {
+                spans.push(Span::raw("  "));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    lines
+}
+
+pub fn animation_frame(tick: usize, width: u16) -> Vec<Line<'static>> {
+    let cols = (width as usize).max(54);
+    let left_margin = 2;
+    let right_margin = 4;
+    let loco_w = 34;
+    let coach_w = cols.saturating_sub(left_margin + right_margin + loco_w);
+    let sp = " ".repeat(left_margin);
+
+    let eq_rows = 3;
+    let mut lines = render_full_bleed_waterfall(tick, width, eq_rows, left_margin);
+
+    let trucks = [
+        "(⠒⣿⠒)⠤(⠒⣿⠒)",
+        "(⠦⣿⠴)⠤(⠦⣿⠴)",
+        "(⠯⣿⠽)⠤(⠯⣿⠽)",
+        "(⠭⣿⠮)⠤(⠭⣿⠮)",
+    ];
+    let truck = trucks[tick % 4];
+
+    // Determine coach partitioning
+    let counts = if coach_w < 30 {
+        vec![coach_w.saturating_sub(2)]
+    } else if coach_w < 52 {
+        let c1 = (coach_w.saturating_sub(4)) / 2;
+        let c2 = coach_w.saturating_sub(4) - c1;
+        vec![c1, c2]
+    } else {
+        let rem = coach_w.saturating_sub(6);
+        let c1 = rem / 3;
+        let c2 = rem / 3;
+        let c3 = rem - c1 - c2;
+        vec![c1, c2, c3]
+    };
+
+    let mut roof_spans = vec![Span::raw(sp.clone())];
+    let mut win_spans = vec![Span::raw(sp.clone())];
+    let mut body_spans = vec![Span::raw(sp.clone())];
+    let mut sill_spans = vec![Span::raw(sp.clone())];
+    let mut wh_spans = vec![Span::raw(sp.clone())];
+
+    for &c_len in &counts {
+        if c_len < 8 {
+            continue;
+        }
+        // Roof: curved aerodynamic cap
+        let r_mid = c_len.saturating_sub(4);
+        roof_spans.push(Span::styled(
+            format!("⢀⣠{}⣄⡀", "⠤".repeat(r_mid)),
+            Style::new().fg(INK),
+        ));
+        roof_spans.push(Span::raw("  "));
+
+        // Windows: clean rectangular illuminated glass without human silhouettes (completely empty window panes)
+        let num_win = (c_len.saturating_sub(4) / 4).max(1);
+        let mut inner_win = String::new();
+        for w in 0..num_win {
+            if w > 0 {
+                inner_win.push(' ');
+            }
+            inner_win.push_str("⢺ ⡗");
+        }
+        let win_char_len = num_win * 3 + (num_win - 1);
+        let pad_win = c_len.saturating_sub(2 + win_char_len);
+        let left_pad = pad_win / 2;
+        let right_pad = pad_win - left_pad;
+
+        win_spans.push(Span::styled("⢸", Style::new().fg(INK)));
+        if left_pad > 0 {
+            win_spans.push(Span::raw(" ".repeat(left_pad)));
+        }
+        win_spans.push(Span::styled(inner_win, Style::new().fg(CABIN_GLOW)));
+        if right_pad > 0 {
+            win_spans.push(Span::raw(" ".repeat(right_pad)));
+        }
+        win_spans.push(Span::styled("⢸", Style::new().fg(INK)));
+        win_spans.push(Span::styled("⠶⠶", Style::new().fg(RULE)));
+
+        // Car body
+        let b_mid = c_len.saturating_sub(2);
+        body_spans.push(Span::styled(
+            format!("⢸{}⡇", "⣿".repeat(b_mid)),
+            Style::new().fg(INK),
+        ));
+        body_spans.push(Span::raw("  "));
+
+        // Underfloor equipment & sill
+        let eq_str = if c_len >= 16 {
+            "⠛⠛⠛⣾⣿⡷⠛⠛"
+        } else {
+            "⣾⣿⡷"
+        };
+        let pad_s = c_len.saturating_sub(2 + eq_str.chars().count());
+        let left_s = pad_s / 2;
+        let right_s = pad_s - left_s;
+        sill_spans.push(Span::styled(format!("⠘{}", "⠛".repeat(left_s)), Style::new().fg(RULE)));
+        sill_spans.push(Span::styled(eq_str, Style::new().fg(INK)));
+        sill_spans.push(Span::styled(format!("{}⠃", "⠛".repeat(right_s)), Style::new().fg(RULE)));
+        sill_spans.push(Span::raw("  "));
+
+        // Centered wheel truck
+        if c_len >= 13 {
+            let wh_pad = c_len - 11;
+            let w_left = wh_pad / 2;
+            let w_right = wh_pad - w_left;
+            wh_spans.push(Span::raw(" ".repeat(w_left)));
+            wh_spans.push(Span::styled(truck, Style::new().fg(KEY)));
+            wh_spans.push(Span::raw(" ".repeat(w_right)));
+        } else {
+            wh_spans.push(Span::raw(" ".repeat(c_len)));
+        }
+        wh_spans.push(Span::raw("  "));
+    }
+
+    // Version 4: Retro Bull-Nose Streamliner Locomotive (loco_w = 34)
+    // Curved aerodynamic prow with sealed beam round headlight and empty cab glass
+    roof_spans.push(Span::styled(
+        "⢀⣠⠤⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠤⣄",
+        Style::new().fg(INK),
+    ));
+    roof_spans.push(Span::raw(" ".repeat(loco_w - 24)));
+
+    win_spans.push(Span::styled(
+        "⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
+        Style::new().fg(INK),
+    ));
+    win_spans.push(Span::styled("⢹ ⡇ ⢹ ⡇ ", Style::new().fg(KEY)));
+    win_spans.push(Span::styled("⠙⢦", Style::new().fg(INK)));
+    win_spans.push(Span::raw(" ".repeat(loco_w - 29)));
+
+    body_spans.push(Span::styled(
+        "⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
+        Style::new().fg(INK),
+    ));
+    body_spans.push(Span::styled("(●)", Style::new().fg(WHITE).add_modifier(Modifier::BOLD)));
+    body_spans.push(Span::styled(" ⠸⣆", Style::new().fg(INK)));
+    body_spans.push(Span::raw(" ".repeat(loco_w - 30)));
+
+    sill_spans.push(Span::styled("⠘⠛⠛⠛⠛⠛⠛⠛⠛", Style::new().fg(RULE)));
+    sill_spans.push(Span::styled("⣾⣿⣿⡷", Style::new().fg(INK)));
+    sill_spans.push(Span::styled(
+        "⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠲⢤⣀",
+        Style::new().fg(RULE),
+    ));
+
+    wh_spans.push(Span::raw(" "));
+    wh_spans.push(Span::styled(truck, Style::new().fg(CYAN)));
+    wh_spans.push(Span::raw("  "));
+    wh_spans.push(Span::styled(truck, Style::new().fg(CYAN)));
+    wh_spans.push(Span::raw("   "));
+
+    lines.push(Line::from(roof_spans));
+    lines.push(Line::from(win_spans));
+    lines.push(Line::from(body_spans));
+    lines.push(Line::from(sill_spans));
+    lines.push(Line::from(wh_spans));
+
+    // Running rails, ties, ballast
+    let train_total_w = coach_w + loco_w;
+    lines.push(Line::from(vec![
+        Span::raw(sp.clone()),
+        Span::styled("⠶".repeat(train_total_w), Style::new().fg(RULE)),
+        Span::styled(
+            "⠶".repeat(right_margin),
+            Style::new().fg(WHITE).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    let ties_pattern = " ⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚ ⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚⠓⠒⠚";
+    let t_offset = (tick * 2) % 3;
+    let ties_slice: String = ties_pattern
+        .chars()
+        .skip(t_offset)
+        .take(train_total_w + right_margin)
+        .collect();
+    lines.push(Line::from(vec![
+        Span::raw(sp.clone()),
+        Span::styled(ties_slice, Style::new().fg(RULE)),
+    ]));
+
+    let ballast_pattern = " ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄ ⠂ ⠂ ⠄";
+    let g_offset = (tick * 3) % 6;
+    let ballast_slice: String = ballast_pattern
+        .chars()
+        .skip(g_offset)
+        .take(train_total_w + right_margin)
+        .collect();
+    lines.push(Line::from(vec![
+        Span::raw(sp),
+        Span::styled(ballast_slice, Style::new().fg(DIM)),
+    ]));
+
+    lines
 }
 
 fn styled_load(line: &crate::load::LoadLine) -> Line<'static> {
@@ -1034,8 +1069,47 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         let screen = screen_text(&buf);
         assert!(screen.contains("Are you riding Amtrak right now? y/N"));
-        assert!(screen.contains("==<"));
-        assert!(screen.contains("CLEAR"));
+        assert!(screen.contains("⢺ ⡗"));
+        assert!(!screen.contains("⢺⣿⡗"));
+        assert!(!screen.contains("⢹⣿⡇"));
+        assert!(!screen.contains("⠹⣿⠏"));
+        assert!(screen.contains("(●)"));
+        assert!(screen.contains("⠶⠶"));
+    }
+
+    #[test]
+    fn the_load_screen_adapts_to_wide_and_narrow_screens() {
+        use crate::load::Wizard;
+        for (w, h) in [(56u16, 18usize), (70, 20), (100, 24), (120, 30)] {
+            let mut wizard = Wizard::new();
+            wizard.tick();
+            let view = wizard.view(h, "About 40 kB an hour.");
+            let backend = TestBackend::new(w, h as u16);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal.draw(|frame| draw_load(frame, &view)).unwrap();
+            let buf = terminal.backend().buffer().clone();
+            let screen = screen_text(&buf);
+            assert!(screen.contains("⢺ ⡗"), "failed at w={} h={}", w, h);
+            assert!(!screen.contains("⢺⣿⡗"));
+            assert!(!screen.contains("⢹⣿⡇"));
+            assert!(screen.contains("(●)"), "failed at w={} h={}", w, h);
+        }
+    }
+
+    #[test]
+    fn the_load_screen_shows_moving_bars_alone_when_short() {
+        use crate::load::Wizard;
+        let mut wizard = Wizard::new();
+        wizard.tick();
+        let view = wizard.view(12, "About 40 kB an hour.");
+        let backend = TestBackend::new(50, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw_load(frame, &view)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let screen = screen_text(&buf);
+        assert!(screen.contains("Are you riding Amtrak right now? y/N"));
+        assert!(screen.contains('⣿') || screen.contains('⣤') || screen.contains('⣶'));
+        assert!(!screen.contains("(●)"));
     }
 
     fn screen_of(terminal: &Terminal<TestBackend>) -> String {
