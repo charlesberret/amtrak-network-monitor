@@ -2,7 +2,7 @@
 name = "amtrak-network-monitor"
 version = "0.1.0"
 edition = "2021"
-description = "Record a ride: position and the connection in use, shown as it happens."
+description = "Measure the network on an Amtrak ride, and where the train is, into one private trip file."
 license = "MIT"
 
 [[bin]]
