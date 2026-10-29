@@ -49,13 +49,15 @@ On macOS, you need the Xcode command line tools as well, plus a small location h
 
 On Linux, `ip` (iproute2), `ping` (iputils), and `curl` are used for the connection check. Run the monitor in a terminal inside a live, logged-in graphical session. The program asks the location portal, and your system shows its own allow dialog. Over SSH, or with no portal, the town line says it is waiting for a location. `--loc PATH` still reads a location file you already have.
 
-## Build
+## Install
 
 In this directory:
 
 ```bash
-cargo build --release
+cargo install --path .
 ```
+
+That builds the program and puts `amtrak-network-monitor` in `~/.cargo/bin`, so you can run it by name from anywhere. If your shell then says `command not found`, that folder isn't on your PATH yet. Rust's own installer (rustup) normally adds it. If you installed Rust another way, add `export PATH="$HOME/.cargo/bin:$PATH"` to your shell profile, or install somewhere that is already on your PATH, such as `cargo install --path . --root ~/.local`. To update later, pull and run the same command again.
 
 On macOS, build the location helper next (see *On a Mac*, below).
 
@@ -83,7 +85,7 @@ Two things to know:
 Start the monitor (on a Mac, with the location helper already open):
 
 ```bash
-cargo run --release
+amtrak-network-monitor
 ```
 
 It asks if you are riding Amtrak. If you are, you pick the line, or continue without one, and say whether you are on Amtrak Wi-Fi or your own. It then asks whether to keep the trip on this computer, and tells you how many kB an hour that is. If you keep it, it asks whether to keep the anonymous copy too.
@@ -111,10 +113,10 @@ Ping, the test page, and the position can each be turned off.
 
 The program never sends anything on its own. To contribute a ride you have to ask it to, after the ride, once you have seen what would be sent.
 
-Sharing only works if someone running a receiver has given you a `share.json` file. Today that is a small test group, so if you don't have one, keep your files. The `share.json` holds the address to send to and a token that is yours. Put it in the folder from the table above, next to `settings.json`, and keep it private (`chmod 600`). Then, in this directory:
+Sharing only works if someone running a receiver has given you a `share.json` file. Today that is a small test group, so if you don't have one, keep your files. The `share.json` holds the address to send to and a token that is yours. Put it in the folder from the table above, next to `settings.json`, and keep it private (`chmod 600`). Then:
 
 ```bash
-cargo run --release -- share
+amtrak-network-monitor share
 ```
 
 It takes your newest anonymous copy, tells you how many rows it holds and where it would go, and asks `y/N` before sending. It sends with `curl`. The receiver only accepts the line names the picker offers, so a ride with any other line name will be refused. Please don't post a trip file anywhere public, such as a GitHub issue.
