@@ -1,35 +1,45 @@
-# Amtrak Network Monitor
+# Amtrak Network Monitor (AmNetMon?)
 
-Everyone who rides Amtrak knows the Wi-Fi fails. This program turns that knowledge into measurements. Run it in a terminal during your ride and it logs how good your connection is, and where the train is, every 20 seconds or at a rate you choose, into one private file.
+Everyone who rides Amtrak knows the Wi-Fi fails, and if you ride enough you might even know where coverage is worst. This program turns that knowledge into measurements. Run it in a terminal during your ride and it measures your connection quality, displays it onscreen for reference, tells you exactly where the train is, and logs this data in a private file.
 
-Right now the limits of Amtrak's network are described mostly by anecdote. The aim here is evidence: enough rides, from enough people, to show in plain numbers where the connection fails and how badly, so that riders and the people responsible for the network are arguing from the same data. That is the goal, not where things stand. Today the program records on your own computer, and sharing a ride happens one rider at a time, by hand.
+The aim here is evidence: with enough rides logged by enough people, we can show in plain numbers where the connection fails and how badly, so that riders and the people responsible for the network are seeing the same data. That's the goal, not where things stand. If you want this data to reach the level where it can publicly demonstrate the scale of this problem, please contribute.
+
+Note: It might sound like I'm taking Amtrak to task for this problem, but the bigger problem is the maintainers of our nationwide mobile network infrastructure have not invested in improving the many dead zones along rural stretches of major train lines. This is an egregious oversight given that train lines have always been the easiest routes for installing long-distance communications infrastructure (literally for nearly two centuries, going back to the fucking telegraph).
 
 ## What it measures
 
-Every 20 seconds, or every 10, 30, or 60 if you change it in settings, the program takes one sample:
+The program takes one sample every 20 seconds (but you can change the rate or contents of these samples in the settings):
 
-- **Ping.** Three pings to `1.1.1.1` (Cloudflare). From them it keeps packet loss and the average round-trip time.
-- **Test page.** One request for `http://captive.apple.com/hotspot-detect.html`, given 8 seconds to answer. The page counts as loaded when the reply status is 200. The program checks the status, not what the page says.
-- **Place.** Your position to about 100 meters, from the location helper on macOS or the system's location service on Linux. On macOS the town name comes from Apple's geocoder, so Apple sees your position. On Linux the program does not look up a town, and the town line shows your position without a name.
-- **Connection.** Which one you told it you were on: Amtrak's free Wi-Fi, or your own, such as a phone hotspot. That label is what lets the two be compared.
+- **Ping.** Three pings to Cloudflare (`1.1.1.1`). That lets us measure packet loss and the average round-trip time.
+- **Test page.** One request for `http://captive.apple.com/hotspot-detect.html`, given 8 seconds to answer. The page counts as loaded when the reply status is 200. To keep overhead low, the program checks only the status, not the page contents.
+- **Place.** Your position within about 100 meters, taken from the location helper on macOS or the system's location service on Linux. On macOS the town name comes from Apple's geocoder, so Apple does see your position (then again, you're only telling them that you're on a train). On Linux, the program does not look up a town, just your geo-coordinates, so the app's town line shows your position without a name.
+- **Connection.** You're asked this question when you start the tool: are you on Amtrak's free Wi-Fi, or your own service, like a phone tether or hotspot. That label is what allows us to compare the WiFi provided by Amtrak to the general mobile connection quality along the same train route.
 
-The one-word verdict on screen is a rule over those numbers. *Clear* means the page loaded, loss is 5% or less, and the round trip is under 250 ms. *Uneven* means the page loaded, loss is under 40%, and the round trip is under 800 ms. *Poor* means loss is under 80%. Anything worse is *down*, as is a connection with no address. If you turn the ping or the test page off, the rule uses the other one alone, and for the page alone *clear* means it loaded in under half a second. These cutoffs are a judgment, not a standard. They are in `src/model.rs`.
+The one-word verdict on screen for your _connection quality_ is a rule over those numbers. 
+- *Clear* means the page loaded, loss is 5% or less, and the round trip is under 250 ms.
+- *Uneven* means the page loaded, loss is under 40%, and the round trip is under 800 ms.
+- *Poor* means loss is under 80%.
+- Anything worse than that is considered *down*, and so is a connection with no address.
 
-The screen shows the town, the verdict right now, and a row of blocks for the last half hour. One block is 30 seconds. A time under a block, such as `2:20`, is that block.
+If you turn off either the ping or the test page, the tool uses the other one alone for determining network quality. With only page load time, *clear* means it loaded in under half a second. These cutoffs are a judgment, not based on any standard. They are in `src/model.rs`. You can edit them any way you want and even file a PR if you think you've hit on a better set of cutoffs.
+
+The screen shows the current town, connection quality verdict, and a row of colored blocks displaying the last half hour (or less depending on the window size). One block is 30 seconds. The time written directly under a block, such as `2:20`, is there to help you keep track of the ups and downs in connection speed over the course of your trip (as you become ever more upset and increasingly convinced that someone should do something).
 
 ### What the numbers can and can't say
 
-One laptop in one seat on a shared link is a sample of a ride, not a survey of the network. A hotspot reading depends on your carrier as well as on the train. Read a single ride as one data point.
+One laptop in one seat on a shared link is a sample of a ride, not a survey of the network. A phone or hotspot reading depends on your carrier as well as the train route. Read a single ride as one round of data gathering that needs more rounds to make a useful dataset.
 
-Any Amtrak train works. The train name is a label, and `--line "Lake Shore Limited"` is one example. If you say you are not on Amtrak, it is still a connection monitor.
+Any Amtrak train works. The tool even works when you're not on a train. And frankly, you could just spoof the data to mess up this project, but I hope you won't. 
 
-## What it keeps, and what it doesn't
+## Data privacy
+
+When you start the program, it asks if you want to keep an anonymous copy next to the trip file in your local file system. It stays on your computer unless you share it.
 
 A saved row has the time, the town (on macOS), a position rounded to about 100 meters, the measurements above, and which connection you named. It has no street address, no Wi-Fi name, and no IP address, and no setting saves them. The trip file is readable only by your user.
 
-If you say yes at the start, the program also keeps an anonymous copy next to the trip file. It is thinner: the train line, the position, and the measurements. It has no time, no town, and no connection label. It stays on your computer unless you share it.
+Caveat: none of these efforts to anonymize data actually guarantee anonymity (and this is true of any data you produce on any device). A route you ride often says something about you even without a name, so you might want to open the file and look at its contents before you send it. 
 
-Rounding is not a guarantee. A route you ride often says something about you even without a name, so open a file and look before you send it. The monitor also talks to two servers of its own while it runs: Cloudflare for the pings and Apple for the test page. They see your connection like any other request. Ping and the test page can each be turned off in settings.
+The monitor also talks to two servers of its own while it runs: Cloudflare for the pings and Apple for the test page. They see your connection like any other request, but the ping and the test page can be turned off in settings. It's all up to you.
 
 ## What you need
 
@@ -100,8 +110,8 @@ Like any web request, a send shows your network address to the server that recei
 
 ## Contributing
 
-This was built on a Mac and tested on Linux, and it comes with no guarantees. If you find something broken, please try to fix it and open a pull request. For a bigger change, open an issue first so we can talk it through. That goes double for anything that changes what is measured or where the verdict cutoffs sit, because it changes what the numbers mean and makes new rides harder to compare with old ones.
+This was built on a Mac and tested on Linux, but it comes with no guarantees. If you find something broken, please fix it and open a pull request. For a bigger change, open an issue first so we can talk it through. That goes double for anything that changes what is measured or where the verdict cutoffs sit, because it changes what the numbers mean and makes new rides harder to compare with old ones.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT, meaning this code is free and open in lots of ways. See `LICENSE`.
