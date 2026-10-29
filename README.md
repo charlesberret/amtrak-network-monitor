@@ -4,15 +4,17 @@ A terminal utility for a train ride. It records the connection the computer is u
 
 The thing to get right is a simple Unix tool. You run it in a terminal. Linux is a place it should run, and so is a Mac. A macOS app and an iOS app would come later, so someone can start the same record without a terminal.
 
-The train name is a label. Any Amtrak train works. `--line "Lake Shore Limited"` is an example, not a limit.
+The train name is a label. Any Amtrak train works. `--line "Lake Shore Limited"` is one example.
 
 ## What you need
 
-Rust, and a terminal. The laptop can be on Amtrak Wi-Fi or on a phone hotspot. A phone build is later work. Today you run this on a laptop.
+For now, only Rust and a terminal. The laptop can be on Amtrak Wi-Fi, tethered to your phone, or connected to a hotspot. Desktop and mobile builds will be later work. Today you run this on your laptop in a terminal.
 
-On macOS, the Xcode command line tools as well. Position comes from a small helper, because a terminal program cannot ask macOS for Location. Leave that helper open for the whole trip.
+On macOS, you need the Xcode command line tools as well. Position comes from a small helper because a terminal program cannot ask macOS for location data. If you're running this on a Mac, leave that helper open for the whole trip.
 
-On Linux, `ip` (iproute2), `ping` (iputils), and `curl` are the connection check. In a desktop session the program asks the location portal, and the desktop shows its own allow dialog. Over SSH, or with no portal, the town line says it is waiting for a location. `--loc PATH` still reads a location file you already have. Trip files go in `.local/state/amtrak-network-monitor/trips` under your home directory, unless `XDG_STATE_HOME` is set.
+On Linux, `ip` (iproute2), `ping` (iputils), and `curl` are used for the connection check. In a live session the program asks the location portal, and the desktop shows its own allow dialog. Over SSH, or with no portal, the town line says it is waiting for a location. `--loc PATH` still reads a location file you already have. 
+
+Trip files go in `.local/state/amtrak-network-monitor/trips` under your home directory, unless `XDG_STATE_HOME` is set.
 
 ## Build
 
