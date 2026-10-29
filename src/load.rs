@@ -115,9 +115,9 @@ impl Wizard {
             },
             Phase::Store => LoadView {
                 lines: vec![
-                    prompt("Store trips in a local database on this computer? y/N"),
+                    prompt("Save this trip on this computer? y/N"),
                     blank(),
-                    text("A saved trip is kept so a later ride can warn you before a dead zone from an earlier trip, and so Amtrak Wi-Fi can be compared with a personal connection."),
+                    text("It is saved as a file only you can read. Each row has the time, your position to about 100 m, the town when there is one, the connection measurements, and which connection you picked."),
                     blank(),
                     text(storage),
                     text("Nothing is uploaded."),
@@ -128,11 +128,11 @@ impl Wizard {
             },
             Phase::Share => LoadView {
                 lines: vec![
-                    prompt("Share this trip anonymously? y/N"),
+                    prompt("Keep an anonymous copy to share later? y/N"),
                     blank(),
-                    text("Only the train line, the location to about 100 m, and the connection measurement. A public map of coverage, and of how the lines differ, would use those."),
+                    text("The copy holds only the train line, the location to about 100 m, and the connection measurements. It leaves out the time, the town, and which connection you picked."),
                     blank(),
-                    text("A yes keeps that anonymous copy on this computer. Nothing is sent until you run `share` after the ride."),
+                    text("A yes keeps the copy on this computer. Nothing is sent unless you run `share` after the ride."),
                 ],
                 pinned: None,
                 foot: Foot::Quit,
@@ -456,7 +456,7 @@ mod tests {
         let text = dump(&wizard);
         assert!(text.contains("No? OK. It still watches the connection."));
         assert!(!text.contains("How are you connected?"));
-        assert!(!text.contains("Store trips"));
+        assert!(!text.contains("Save this trip"));
         match wizard.push(Press::Enter) {
             Outcome::Done(board) => {
                 assert!(!board.on_amtrak);
@@ -493,19 +493,23 @@ mod tests {
         assert!(text.contains("2  Personal WiFi (phone or hotspot)"));
         wizard.push(Press::Char('2'));
         let text = dump(&wizard);
-        assert!(text.contains("Store trips in a local database on this computer? y/N"));
-        assert!(text.contains("dead zone"));
-        assert!(text.contains("personal connection"));
+        assert!(text.contains("Save this trip on this computer? y/N"));
+        assert!(text.contains("only you can read"));
+        assert!(text.contains("which connection you picked"));
         assert!(text.contains("About 40 kB an hour."));
         assert!(text.contains("Nothing is uploaded."));
-        assert!(!text.contains("Share this trip"));
+        assert!(!text.contains("Keep an anonymous copy"));
+        assert!(!text.contains("dead zone"));
+        assert!(!text.contains("database"));
         wizard.push(Press::Char('y'));
         let text = dump(&wizard);
-        assert!(text.contains("Share this trip anonymously? y/N"));
+        assert!(text.contains("Keep an anonymous copy to share later? y/N"));
         assert!(text.contains("train line"));
         assert!(text.contains("location to about 100 m"));
-        assert!(text.contains("connection measurement"));
-        assert!(text.contains("Nothing is sent until you run `share`"));
+        assert!(text.contains("connection measurements"));
+        assert!(text.contains("leaves out the time, the town"));
+        assert!(text.contains("Nothing is sent unless you run `share`"));
+        assert!(!text.contains("public map"));
         match wizard.push(Press::Char('y')) {
             Outcome::Done(board) => {
                 assert!(board.on_amtrak);

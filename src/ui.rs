@@ -1014,12 +1014,11 @@ mod tests {
         terminal.draw(|frame| draw_load(frame, &view)).unwrap();
         let screen = screen_text(terminal.backend().buffer());
         let flat = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(flat.contains("local database"));
-        assert!(flat.contains("dead zone"));
-        assert!(flat.contains("personal connection"));
+        assert!(flat.contains("only you can read"));
+        assert!(flat.contains("which connection you picked"));
         assert!(flat.contains("About 40 kB an hour."));
         assert!(flat.contains("Nothing is uploaded."));
-        assert!(!flat.contains("Share this trip"));
+        assert!(!flat.contains("Keep an anonymous copy"));
     }
 
     #[test]
